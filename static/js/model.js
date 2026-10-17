@@ -1,5 +1,7 @@
 // Lookups over the household data from /api/state.
 import { seriesColor } from './ui.js';
+import { t } from './i18n.js';
+import { amount, monthNames } from './fmt.js';
 
 export function members(household, { archived = false } = {}) {
   return household.members.filter((m) => archived || !m.archived);
@@ -51,4 +53,49 @@ export function monthTotals(items, monthIndex) {
 export function referenceMonth(year) {
   const now = new Date();
   return year === now.getFullYear() ? now.getMonth() : 11;
+}
+
+// ------------------------------------------------------------------ repeating amounts
+// Items store one amount per month. Most follow a rhythm ("2,500 every month",
+// "880 every quarter from February"), so the editor works in those terms and
+// only falls back to month by month when the amounts vary.
+
+export const EVERY = [1, 2, 3, 4, 6, 12];
+
+/** The 12 monthly values a rhythm produces. */
+export function applyPattern({ every, from, to }, value) {
+  return Array.from({ length: 12 }, (_, i) => (value != null && i >= from && i <= to && (i - from) % every === 0 ? value : null));
+}
+
+/** The rhythm behind 12 monthly values, or null if the amounts vary. */
+export function detectPattern(values) {
+  const months = values.map((v, i) => (v != null ? i : -1)).filter((i) => i >= 0);
+  if (!months.length) return null;
+  const value = values[months[0]];
+  if (months.some((i) => values[i] !== value)) return null;
+  const every = months.length === 1 ? 12 : months[1] - months[0];
+  if (!EVERY.includes(every)) return null;
+  for (let k = 1; k < months.length; k++) if (months[k] - months[k - 1] !== every) return null;
+  const last = months[months.length - 1];
+  return { value, every, from: months[0], to: last + every > 11 ? 11 : last };
+}
+
+/** "2,500 every month", "880 in Feb, May, Aug, Nov", or "Varies". */
+export function describeAmounts(values) {
+  const p = detectPattern(values);
+  if (!values.some((v) => v != null)) return t('pattern.none');
+  if (!p) {
+    // "Mostly 31,250" when one amount covers most months, e.g. a salary with a bonus month.
+    const counts = new Map();
+    values.forEach((v) => v != null && counts.set(v, (counts.get(v) || 0) + 1));
+    const [common, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    return n >= 3 ? t('pattern.mostly', { amount: amount(common) }) : t('pattern.varies');
+  }
+  const short = monthNames('short');
+  if (p.every === 1) {
+    const whole = p.from === 0 && p.to === 11;
+    return t('pattern.monthly', { amount: amount(p.value) }) + (whole ? '' : ` (${short[p.from]}–${short[p.to]})`);
+  }
+  const months = values.map((v, i) => (v != null ? short[i] : null)).filter(Boolean);
+  return t('pattern.in', { amount: amount(p.value), months: months.join(', ') });
 }

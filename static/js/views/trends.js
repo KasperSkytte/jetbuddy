@@ -3,8 +3,8 @@ import { useStore, useData } from '../store.js';
 import { t } from '../i18n.js';
 import { money, signedMoney, percent, monthNames } from '../fmt.js';
 import { ColumnChart, LineChart, ChartCard, ChartTable, Legend } from '../charts.js';
-import { Dot, Empty, seriesColor } from '../ui.js';
-import { members, accountById, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
+import { Empty, seriesColor } from '../ui.js';
+import { members, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
 
 export function Trends() {
   const { year, household } = useStore();
@@ -34,7 +34,8 @@ export function Trends() {
     { name: String(year), color: EXPENSE_COLOR, values: thisYear.data.expense },
   ];
 
-  const people = members(household, { archived: true }).filter((m) => data.some((y) => y.members.some((x) => x.id === m.id && (x.expense || x.income))));
+  const people = members(household, { archived: true }).filter((m) => data.some((y) => y.members.some((x) => x.id === m.id && x.expense)));
+  const personSeries = people.map((m) => ({ name: m.name, color: seriesColor(m.color), values: data.map((y) => y.members.find((x) => x.id === m.id)?.expense || 0) }))
 
   return html`<div class=${trends.loading ? 'refetching' : ''}>
     <div class="grid-2">
@@ -55,26 +56,22 @@ export function Trends() {
         <${LineChart} labels=${labels} series=${accountSeries} zero label=${t('trends.accounts')} />
       </${ChartCard}>`}
 
-      <section class="card span-2">
+      <section class="card flush span-2">
         <div class="card-head"><h2>${t('trends.table')}</h2></div>
-        <div class="table-scroll"><table class="data">
-          <thead><tr><th></th><th>${t('common.income')}</th><th>${t('common.expenses')}</th><th>${t('common.balance')}</th><th>${t('trends.toSavings')}</th><th>${t('trends.savingsRate')}</th></tr></thead>
-          <tbody>${[...data].reverse().map((y) => html`<tr key=${y.year}>
-            <td><strong>${y.year}</strong></td><td>${money(y.income)}</td><td>${money(y.expense)}</td>
-            <td class=${y.net > 0.5 ? 'good' : y.net < -0.5 ? 'bad' : ''}>${signedMoney(y.net)}</td>
-            <td>${money(y.savings)}</td><td>${y.income ? percent((y.savings + y.net) / y.income) : '–'}</td></tr>`)}
-          </tbody></table></div>
-        <p class="small muted" style="margin:10px 0 0">${t('trends.rateHint')}</p>
+        <div class="list">${[...data].reverse().map((y) => html`<div class="list-row" key=${y.year}>
+          <div class="main-col"><div class="name">${y.year}</div>
+            <div class="meta" style="white-space:normal">${t('common.income')} ${money(y.income)} · ${t('common.expenses')} ${money(y.expense)} · ${t('trends.toSavings')} ${money(y.savings)}</div></div>
+          <div style="text-align:right"><div class=${'amount ' + (y.net > 0.5 ? 'good' : y.net < -0.5 ? 'bad' : '')}>${signedMoney(y.net)}</div>
+            <div class="small muted">${y.income ? t('trends.rate', { pct: percent((y.savings + y.net) / y.income) }) : ''}</div></div>
+        </div>`)}</div>
+        <p class="small muted" style="margin:0;padding:4px 16px 14px">${t('trends.rateHint')}</p>
       </section>
 
-      ${people.length > 0 && html`<section class="card span-2">
-        <div class="card-head"><h2>${t('trends.byPerson')}</h2></div>
-        <div class="table-scroll"><table class="data">
-          <thead><tr><th></th>${people.map((m) => html`<th key=${m.id}><span class="row" style="justify-content:flex-end"><${Dot} color=${seriesColor(m.color)} size=${8} />${m.name}</span></th>`)}</tr></thead>
-          <tbody>${[...data].reverse().map((y) => html`<tr key=${y.year}><td><strong>${y.year}</strong></td>
-            ${people.map((m) => html`<td key=${m.id}>${money(y.members.find((x) => x.id === m.id)?.expense || 0)}</td>`)}</tr>`)}
-          </tbody></table></div>
-      </section>`}
+      ${people.length > 0 && html`<${ChartCard} title=${t('trends.byPerson')} className="span-2"
+        table=${html`<${ChartTable} labels=${labels} series=${personSeries} total=${false} />`}>
+        <${Legend} series=${personSeries} />
+        <${ColumnChart} labels=${labels} series=${personSeries} label=${t('trends.byPerson')} />
+      </${ChartCard}>`}
     </div>
   </div>`;
 }

@@ -122,7 +122,7 @@ export function Sheet({ title, onClose, children, footer, wide = false }) {
  * on blur or Enter (which also moves to the next box, so a column of amounts
  * can be typed in one go).
  */
-export function AmountInput({ value, onSave, placeholder = '–', className = 'amount-input', label, manual = false, autoFocus = false, nav = true, data = {} }) {
+export function AmountInput({ value, onSave, placeholder = '–', className = 'amount-input', label, manual = false, autoFocus = false }) {
   const [text, setText] = useState(amount(value));
   const [focused, setFocused] = useState(false);
   const [state, setState] = useState(''); // '', 'saved', 'invalid'
@@ -164,7 +164,7 @@ export function AmountInput({ value, onSave, placeholder = '–', className = 'a
   };
 
   const keydown = (e) => {
-    if (e.key === 'Enter' && nav) {
+    if (e.key === 'Enter') {
       e.preventDefault();
       focusNext(e.target, e.shiftKey ? -1 : 1);
     } else if (e.key === 'Escape') {
@@ -180,7 +180,7 @@ export function AmountInput({ value, onSave, placeholder = '–', className = 'a
     onFocus=${(e) => { setFocused(true); setState(''); requestAnimationFrame(() => e.target.select()); }}
     onBlur=${() => { setFocused(false); commit(); }}
     onInput=${(e) => { dirty.current = true; setText(e.target.value); }}
-    onKeyDown=${keydown} data-r=${data.r} data-c=${data.c} />`;
+    onKeyDown=${keydown} />`;
 }
 
 /** Move focus to the next/previous amount box in the page, or blur at the end. */

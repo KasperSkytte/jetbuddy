@@ -4,15 +4,17 @@ A self-hosted family budget for phones and computers. Plan each person's
 income and expenses month by month, keep every year in one place, and see where
 the money goes.
 
-Made for households that keep their budget in a spreadsheet, one tab per person
-and one file per year, and are tired of typing into tiny cells on the phone.
+Made for households that have outgrown a budget spreadsheet: no cells and no
+formulas. Just say what comes in and goes out, and how often, and Nestegg does
+the sums and the charts.
 
 <p>
-  <img src="docs/phone-overview.png" width="230" alt="Overview on a phone">
-  <img src="docs/phone-month.png" width="230" alt="Typing this month's amounts on a phone">
-  <img src="docs/phone-trends-dark.png" width="230" alt="Trends across years, dark mode">
+  <img src="docs/phone-overview.png" width="200" alt="Overview on a phone">
+  <img src="docs/phone-budget.png" width="200" alt="Budget items in plain words on a phone">
+  <img src="docs/phone-month.png" width="200" alt="Typing this month's amounts on a phone">
+  <img src="docs/phone-trends-dark.png" width="200" alt="Trends across years, dark mode">
 </p>
-<img src="docs/desktop-budget.png" alt="The budget as a spreadsheet grid on a computer">
+<img src="docs/desktop-overview.png" alt="The overview on a computer">
 
 ## What it does
 
@@ -20,11 +22,12 @@ and one file per year, and are tired of typing into tiny cells on the phone.
   shared one for rent, groceries, the car and so on.
 - **One app for all years.** Items carry over from year to year with their
   history, and a new year starts as a copy of the last one with one tap.
-- **Fast entry on a phone.** The Month view lists this month's amounts with a
-  big number keypad, Enter jumps to the next amount, and you can type `120+45`
-  to add up receipts. Quick fill does "1,551 every quarter from January" in one go.
-- **A spreadsheet on a computer.** The Budget view is a grid with arrow-key
-  navigation, and you can paste a block of cells straight from Excel or Google Sheets.
+- **Budget items in plain words.** "2,500 every month", "1,551 every quarter
+  from January", "3,248 in February". Tap a single month to change just that one
+  when it differs.
+- **Made for the phone.** The Month view lists this month's amounts with a
+  number keypad, Enter jumps to the next amount, and you can type `120+45` to
+  add up receipts. On a computer the same app simply gets more room.
 - **Account balances.** Follows the budget account and savings month by month.
   Type the real balance from the bank when it differs, and the following months
   continue from there.
@@ -89,10 +92,11 @@ Everything is in `data/nestegg.db`. Copy that file (preferably while the
 container is stopped), or use **Settings → Download a backup** for a JSON file
 that **Restore a backup** reads back in.
 
-## Moving from a spreadsheet
+## Bringing in an old spreadsheet
 
-**Settings → Import from a spreadsheet** reads `.xlsx` and `.csv` files laid
-out with one row per item and one column per month:
+If your budget lives in Excel or Google Sheets today, **Settings → Import from a
+spreadsheet** brings it in once, so you can leave the spreadsheet behind. It
+reads `.xlsx` and `.csv` files with one row per item and one column per month:
 
 ```
           Jan    Feb    Mar  …

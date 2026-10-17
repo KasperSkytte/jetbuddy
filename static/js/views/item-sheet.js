@@ -1,12 +1,56 @@
-import { html, useState } from '../lib.js';
+import { html, useState, useRef, useEffect } from '../lib.js';
 import { api } from '../api.js';
 import { useStore, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
 import { monthNames, parseAmount, amount, money, sum } from '../fmt.js';
 import { Sheet, Segmented, Switch, Icon, toast, toastError } from '../ui.js';
-import { members, categories } from '../model.js';
+import { members, categories, EVERY, applyPattern, detectPattern } from '../model.js';
 
-const EVERY = [1, 2, 3, 4, 6, 12];
+/**
+ * One month as a tile. It is a real text box (so a tap goes straight to the
+ * keyboard on phones) that looks like a tile until focused. Enter moves on
+ * to the next month.
+ */
+function MonthTile({ label, longLabel, value, onCommit }) {
+  const [text, setText] = useState(amount(value));
+  const [focused, setFocused] = useState(false);
+  const skip = useRef(false);
+  useEffect(() => {
+    if (!focused) setText(amount(value));
+  }, [value, focused]);
+  const commit = () => {
+    const v = parseAmount(text);
+    if (skip.current || Number.isNaN(v)) {
+      skip.current = false;
+      setText(amount(value));
+      return;
+    }
+    if (v !== (value ?? null)) onCommit(v);
+  };
+  const keydown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const all = [...e.target.closest('.mtiles').querySelectorAll('input')];
+      const next = all[all.indexOf(e.target) + 1];
+      if (next) next.focus();
+      else e.target.blur();
+    } else if (e.key === 'Escape') {
+      // Undo this month only; don't let the sheet close.
+      e.preventDefault();
+      e.stopPropagation();
+      skip.current = true;
+      e.target.blur();
+    }
+  };
+  return html`<label class=${'mtile' + (value != null ? ' on' : '') + (focused ? ' editing' : '')}>
+    <span class="m">${label}</span>
+    <input type="text" inputmode="decimal" enterkeyhint="next" autocomplete="off" value=${text} placeholder="–" aria-label=${longLabel}
+      class=${Number.isNaN(parseAmount(text)) ? 'invalid' : ''}
+      onFocus=${(e) => { setFocused(true); requestAnimationFrame(() => e.target.select()); }}
+      onBlur=${() => { setFocused(false); commit(); }}
+      onInput=${(e) => setText(e.target.value)} onKeyDown=${keydown} />
+  </label>`;
+}
 
 /**
  * Create or edit a budget item for one year. Pass item to edit, or member +
@@ -15,6 +59,10 @@ const EVERY = [1, 2, 3, 4, 6, 12];
 export function ItemSheet({ year, item, member, kind, focusMonth, onClose, onChanged }) {
   const { household } = useStore();
   const isNew = !item;
+  const start = item?.amounts || Array(12).fill(null);
+  const detected = detectPattern(start);
+  const hasValues = start.some((v) => v != null);
+
   const [form, setForm] = useState(() => ({
     name: item?.name || '',
     member_id: item?.member_id ?? member?.id,
@@ -24,23 +72,68 @@ export function ItemSheet({ year, item, member, kind, focusMonth, onClose, onCha
     fixed: item?.fixed || false,
     note: item?.note || '',
   }));
-  const [texts, setTexts] = useState(() => (item?.amounts || Array(12).fill(null)).map(amount));
-  const [fill, setFill] = useState({ amount: '', every: 1, from: (focusMonth || 1) - 1 });
+  const [values, setValues] = useState(start);
+  // 'pattern': the amounts follow amount/every/from/to. 'custom': month by month.
+  const [mode, setMode] = useState(hasValues && !detected ? 'custom' : 'pattern');
+  const [pattern, setPattern] = useState(() => ({
+    text: detected ? amount(detected.value) : '',
+    every: detected?.every ?? 1,
+    from: detected?.from ?? (isNew && focusMonth ? focusMonth - 1 : 0),
+    to: detected?.to ?? 11,
+  }));
   const [busy, setBusy] = useState(false);
   const short = monthNames('short');
   const long = monthNames('long');
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
-  const parsed = texts.map(parseAmount);
-  const invalid = parsed.some(Number.isNaN);
   const prev = item?.prev || Array(12).fill(null);
   const hasPrev = prev.some((v) => v != null);
+  const patternValue = parseAmount(pattern.text);
+  const invalid = mode === 'pattern' && Number.isNaN(patternValue);
 
-  const applyFill = () => {
-    const value = parseAmount(fill.amount);
-    if (value == null || Number.isNaN(value)) return;
-    // Months before the start month are kept; from there on, the pattern
-    // months get the amount and the months in between are cleared.
-    setTexts((old) => old.map((txt, i) => (i < fill.from ? txt : (i - fill.from) % fill.every === 0 ? amount(value) : '')));
+  const updatePattern = (patch) => {
+    const next = { ...pattern, ...patch };
+    if (next.to < next.from) next.to = 11;
+    setPattern(next);
+    setMode('pattern');
+    const v = parseAmount(next.text);
+    if (!Number.isNaN(v)) setValues(applyPattern(next, v));
+  };
+
+  const chooseEvery = (value) => {
+    if (value === 'custom') {
+      setMode('custom');
+      return;
+    }
+    // Coming from month by month: start from the most common amount.
+    let text = pattern.text;
+    if (mode === 'custom' && !text) {
+      const counts = {};
+      values.forEach((v) => v != null && (counts[v] = (counts[v] || 0) + 1));
+      const common = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      if (common) text = amount(Number(common[0]));
+    }
+    updatePattern({ every: Number(value), text });
+  };
+
+  const editMonth = (i, v) => {
+    const updated = values.map((x, k) => (k === i ? v : x));
+    setValues(updated);
+    const p = detectPattern(updated);
+    if (p) {
+      setPattern({ text: amount(p.value), every: p.every, from: p.from, to: p.to });
+      setMode('pattern');
+    } else if (updated.some((x) => x != null)) {
+      setMode('custom');
+    }
+  };
+
+  const copyPrev = () => {
+    setValues(prev);
+    const p = detectPattern(prev);
+    if (p) {
+      setPattern({ text: amount(p.value), every: p.every, from: p.from, to: p.to });
+      setMode('pattern');
+    } else setMode('custom');
   };
 
   const save = async () => {
@@ -48,10 +141,10 @@ export function ItemSheet({ year, item, member, kind, focusMonth, onClose, onCha
     setBusy(true);
     try {
       if (isNew) {
-        await api.post('/api/items', { ...form, name: form.name.trim(), year, amounts: parsed });
+        await api.post('/api/items', { ...form, name: form.name.trim(), year, amounts: values });
       } else {
         await api.patch(`/api/items/${item.id}?year=${year}`, { ...form, name: form.name.trim() });
-        await api.put(`/api/items/${item.id}/amounts`, { year, amounts: parsed });
+        await api.put(`/api/items/${item.id}/amounts`, { year, amounts: values });
       }
       onChanged();
       onClose();
@@ -89,9 +182,8 @@ export function ItemSheet({ year, item, member, kind, focusMonth, onClose, onCha
 
   const cats = categories(household, form.kind);
   const savingsAccounts = household.accounts.filter((a) => a.kind === 'savings' && !a.archived);
-  const total = sum(parsed.filter((v) => !Number.isNaN(v)));
 
-  return html`<${Sheet} wide title=${isNew ? (form.kind === 'income' ? t('item.newIncome') : t('item.newExpense')) : item.name} onClose=${onClose}
+  return html`<${Sheet} title=${isNew ? (form.kind === 'income' ? t('item.newIncome') : t('item.newExpense')) : item.name} onClose=${onClose}
     footer=${html`
       ${!isNew && html`<button class="btn ghost danger" onClick=${() => remove(false)}>${t('item.removeYear', { year })}</button>`}
       <span class="spacer"></span>
@@ -113,44 +205,34 @@ export function ItemSheet({ year, item, member, kind, focusMonth, onClose, onCha
         </label>
       </div>
 
-      <div class="field">
-        <div class="row"><span class="spacer" style="font-size:13px;font-weight:560;color:var(--text-2)">${t('item.amountsFor', { year })}</span>
-          <span class="small num"><span class="muted">${t('common.total')}</span> <strong>${money(total)}</strong></span></div>
-        <div class="months-grid">
-          ${texts.map((txt, i) => html`<label key=${i}>
-            <span>${short[i]}</span>
-            <input class=${'input' + (Number.isNaN(parsed[i]) ? ' invalid' : '')} style=${Number.isNaN(parsed[i]) ? 'border-color:var(--bad)' : ''}
-              type="text" inputmode="decimal" enterkeyhint="next" value=${txt} aria-label=${long[i]} placeholder="–"
-              onInput=${(e) => setTexts((old) => old.map((x, k) => (k === i ? e.target.value : x)))}
-              onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); const all = e.target.closest('.months-grid').querySelectorAll('input'); (all[i + 1] || e.target).focus(); } }} />
-            <div class="prev">${prev[i] != null ? `${year - 1}: ${amount(prev[i])}` : ''}</div>
-          </label>`)}
+      <div class="amount-box">
+        <div class="form-grid two">
+          ${mode === 'pattern' && html`<label class="field"><span>${t('item.amount')}</span>
+            <input class="input big" type="text" inputmode="decimal" value=${pattern.text} placeholder="0"
+              style=${invalid ? 'border-color:var(--bad)' : ''} onInput=${(e) => updatePattern({ text: e.target.value })} /></label>`}
+          <label class="field"><span>${t('item.howOften')}</span>
+            <select class="input" value=${mode === 'custom' ? 'custom' : pattern.every} onChange=${(e) => chooseEvery(e.target.value)}>
+              ${EVERY.map((n) => html`<option key=${n} value=${n}>${t('item.every' + n)}</option>`)}
+              <option value="custom">${t('item.varies')}</option>
+            </select></label>
         </div>
-      </div>
+        ${mode === 'pattern' && html`<div class="form-grid two" style="margin-top:14px">
+          <label class="field"><span>${pattern.every === 12 ? t('item.inMonth') : t('item.from')}</span>
+            <select class="input" value=${pattern.from} onChange=${(e) => updatePattern({ from: Number(e.target.value) })}>
+              ${long.map((m, i) => html`<option key=${i} value=${i}>${m}</option>`)}</select></label>
+          ${pattern.every !== 12 && html`<label class="field"><span>${t('item.until')}</span>
+            <select class="input" value=${pattern.to} onChange=${(e) => updatePattern({ to: Number(e.target.value) })}>
+              ${long.map((m, i) => i >= pattern.from && html`<option key=${i} value=${i}>${m}</option>`)}</select></label>`}
+        </div>`}
 
-      <div class="fill-box">
-        <strong class="full small">${t('item.quickFill')}</strong>
-        <label class="field"><span>${t('item.fillAmount')}</span>
-          <input class="input" type="text" inputmode="decimal" value=${fill.amount} onInput=${(e) => setFill({ ...fill, amount: e.target.value })} placeholder="0" />
-        </label>
-        <label class="field"><span>${t('item.fillEvery')}</span>
-          <select class="input" value=${fill.every} onChange=${(e) => setFill({ ...fill, every: Number(e.target.value) })}>
-            ${EVERY.map((n) => html`<option key=${n} value=${n}>${t('item.every' + n)}</option>`)}
-          </select>
-        </label>
-        <label class="field"><span>${t('item.fillFrom')}</span>
-          <select class="input" value=${fill.from} onChange=${(e) => setFill({ ...fill, from: Number(e.target.value) })}>
-            ${long.map((m, i) => html`<option key=${i} value=${i}>${m}</option>`)}
-          </select>
-        </label>
-        <div class="field" style="justify-content:flex-end">
-          <button class="btn primary" onClick=${applyFill} disabled=${parseAmount(fill.amount) == null || Number.isNaN(parseAmount(fill.amount))}>${t('item.fillApply')}</button>
+        <div class="row" style="margin:16px 0 8px">
+          <span class="spacer small secondary">${mode === 'custom' ? t('item.tapMonths') : t('item.tapToChange')}</span>
+          <span class="small num"><span class="muted">${t('item.yearTotal', { year })}</span> <strong>${money(sum(values))}</strong></span>
         </div>
-        <div class="full row wrap">
-          ${hasPrev && html`<button class="btn small" onClick=${() => setTexts(prev.map(amount))}><${Icon} name="copy" size=${16} />${t('item.copyPrev', { year: year - 1 })}</button>`}
-          <button class="btn small" onClick=${() => setTexts(Array(12).fill(''))}>${t('item.clear')}</button>
+        <div class="mtiles">
+          ${values.map((v, i) => html`<${MonthTile} key=${i} label=${short[i]} longLabel=${long[i]} value=${v} onCommit=${(val) => editMonth(i, val)} />`)}
         </div>
-        <p class="full small muted" style="margin:0">${t('item.fillHint')}</p>
+        ${hasPrev && html`<button class="btn small" style="margin-top:12px" onClick=${copyPrev}><${Icon} name="copy" size=${16} />${t('item.copyPrev', { year: year - 1 })}</button>`}
       </div>
 
       <div class="form-grid two">

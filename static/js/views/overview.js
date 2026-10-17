@@ -136,12 +136,12 @@ export function Overview() {
 
       ${memberRows.length > 0 && html`<section class="card">
         <div class="card-head"><h2>${t('overview.byPerson')}</h2></div>
-        <div class="table-scroll"><table class="data">
-          <thead><tr><th></th><th>${t('common.income')}</th><th>${t('common.expenses')}</th><th>${t('common.balance')}</th></tr></thead>
-          <tbody>${memberRows.map((r) => html`<tr key=${r.m.id}>
-            <td><span class="row"><${Dot} color=${seriesColor(r.m.color)} />${r.m.name}</span></td>
-            <td>${money(r.income)}</td><td>${money(r.expense)}</td><td class=${netClass(r.income - r.expense)}>${signedMoney(r.income - r.expense)}</td></tr>`)}
-          </tbody></table></div>
+        <div class="list" style="margin:0 -16px">${memberRows.map((r) => html`<div class="list-row" key=${r.m.id}>
+          <${Dot} color=${seriesColor(r.m.color)} />
+          <div class="main-col"><div class="name">${r.m.name}</div>
+            <div class="meta">${r.income ? `${t('common.income')} ${money(r.income)} · ` : ''}${t('common.expenses')} ${money(r.expense)}</div></div>
+          <div class=${'amount ' + netClass(r.income - r.expense)}>${signedMoney(r.income - r.expense)}</div>
+        </div>`)}</div>
         <div style="margin-top:16px"><${BarList} rows=${memberRows.filter((r) => r.expense).sort((a, b) => b.expense - a.expense).map((r) => ({ key: r.m.id, label: r.m.name, color: seriesColor(r.m.color), value: r.expense, sub: percent(r.expense / expense) }))} /></div>
         <p class="small muted" style="margin:10px 0 0">${t('overview.byPersonHint')}</p>
       </section>`}
