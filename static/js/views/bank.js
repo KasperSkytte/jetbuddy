@@ -78,7 +78,7 @@ function SetupForm({ status, onDone }) {
     <div class="field"><span>${t('bank.key')}</span>
       <label class="btn" style="align-self:flex-start;cursor:pointer"><${Icon} name="upload" size=${18} />
         ${key ? t('bank.keyChosen') : t('bank.chooseKey')}
-        <input type="file" accept=".pem,application/x-pem-file,text/plain" class="sr-only"
+        <input type="file" accept=".pem,.key,application/x-pem-file,text/plain" class="sr-only"
           onChange=${async (e) => { const f = e.target.files[0]; if (f) setKey(await f.text()); }} /></label>
       <span class="hint">${t('bank.keyHint')}</span></div>
     <button class="btn primary" style="align-self:flex-start" disabled=${busy || !appId.trim() || !key} onClick=${save}>${t('common.save')}</button>
