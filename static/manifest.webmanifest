@@ -1,6 +1,6 @@
 {
-  "name": "Nestegg",
-  "short_name": "Nestegg",
+  "name": "Jetbuddy",
+  "short_name": "Jetbuddy",
   "description": "Self-hosted family budget",
   "start_url": "./",
   "scope": "./",

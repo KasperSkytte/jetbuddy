@@ -21,7 +21,7 @@ export function Login({ onDone }) {
     }
   };
   return html`<div class="center-page"><form class="card center-card stack" onSubmit=${submit}>
-    <div class="logo-row"><${Logo} size=${44} /><span class="name">Nestegg</span></div>
+    <div class="logo-row"><${Logo} size=${44} /><span class="name">Jetbuddy</span></div>
     <label class="field"><span>${t('login.password')}</span>
       <input class="input" type="password" autocomplete="current-password" value=${password} onInput=${(e) => setPassword(e.target.value)} autofocus /></label>
     ${error && html`<div class="bad small">${error}</div>`}

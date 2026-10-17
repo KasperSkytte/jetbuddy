@@ -29,7 +29,10 @@ const PATHS = {
   chart: 'M4 4v16h16M8 16v-5M12 16V8M16 16v-3',
   lock: 'M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3',
   edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
-  egg: 'M12 3c3.6 0 6.5 5.4 6.5 10a6.5 6.5 0 0 1-13 0C5.5 8.4 8.4 3 12 3z',
+  home: 'M4 10.5L12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z',
+  bank: 'M3.5 9.5L12 4l8.5 5.5M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3.5 20.5h17',
+  sync: 'M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4',
+  link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   people: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2.5 20a6.5 6.5 0 0 1 13 0M16 4.3a3.5 3.5 0 0 1 0 6.4M18.5 14a6.5 6.5 0 0 1 3 6',
   tag: 'M3.5 12.5V4.5a1 1 0 0 1 1-1h8l8 8-9 9zM8 8h.01',
   logout: 'M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 16l4-4-4-4M14 12H4',
@@ -45,8 +48,7 @@ export function Icon({ name, size = 22, stroke = 1.8 }) {
 export function Logo({ size = 34 }) {
   return html`<svg width=${size} height=${size} viewBox="0 0 64 64" aria-hidden="true">
     <rect width="64" height="64" rx="16" fill="var(--accent)" />
-    <path d="M32 13c8.3 0 15 12.2 15 22.5a15 15 0 0 1-30 0C17 25.2 23.7 13 32 13z" fill="#fff" />
-    <path d="M24.5 38.5h15M27 44h10" stroke="var(--accent)" stroke-width="3.2" stroke-linecap="round" />
+    <path d="M32 10c2.2 0 3.5 2.5 3.5 5.5V27L52 37v4.5l-16.5-5V46l5 4v3.5L32 51.5l-8.5 2V50l5-4v-9.5L12 41.5V37l16.5-10V15.5c0-3 1.3-5.5 3.5-5.5z" fill="#fff" transform="rotate(45 32 32)" />
   </svg>`;
 }
 
@@ -87,19 +89,27 @@ export function toastError(e) {
 
 // ------------------------------------------------------------------ modal sheet
 
+const openSheets = [];
+
 /** Bottom sheet on phones, centered dialog on wider screens. */
 export function Sheet({ title, onClose, children, footer, wide = false }) {
   const panel = useRef(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && onClose();
+    const me = {};
+    openSheets.push(me);
+    // Escape closes the sheet on top only (one can open over another).
+    const onKey = (e) => e.key === 'Escape' && openSheets[openSheets.length - 1] === me && close.current();
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const first = panel.current?.querySelector('[autofocus]');
     if (first && matchMedia('(pointer: fine)').matches) first.focus();
     return () => {
+      openSheets.splice(openSheets.indexOf(me), 1);
       document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
+      document.body.style.overflow = openSheets.length ? 'hidden' : prev;
     };
   }, []);
   return html`

@@ -1,0 +1,236 @@
+"""Bank sync against a fake Enable Banking that checks requests like the real one."""
+
+import json
+from datetime import date, timedelta
+from urllib.parse import parse_qs, urlparse
+
+import httpx
+import jwt
+import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+from app import banking
+
+APP_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+TODAY = date.today()
+THIS_MONTH = TODAY.replace(day=1)
+LAST_MONTH_END = THIS_MONTH - timedelta(days=1)
+TWO_MONTHS_END = LAST_MONTH_END.replace(day=1) - timedelta(days=1)
+
+
+def tx(ref, day, amount, indicator, name="", text=""):
+    party = "creditor" if indicator == "DBIT" else "debtor"
+    return {
+        "entry_reference": ref,
+        "booking_date": day.isoformat(),
+        "transaction_amount": {"currency": "DKK", "amount": amount},
+        "credit_debit_indicator": indicator,
+        "status": "BOOK",
+        party: {"name": name},
+        "remittance_information": [text] if text else [],
+    }
+
+
+class FakeBank:
+    def __init__(self, public_key):
+        self.public_key = public_key
+        self.requests = []
+        self.balance = "10000.00"
+        self.budget_tx = [
+            tx("t1", TWO_MONTHS_END - timedelta(days=5), "31250.00", "CRDT", "Acme ApS", "Løn"),
+            tx("t2", LAST_MONTH_END - timedelta(days=20), "129.00", "DBIT", "NETFLIX.COM", "Netflix 1234"),
+            tx("t3", LAST_MONTH_END - timedelta(days=3), "12000.00", "DBIT", "", "Husleje"),
+            tx("t4", TODAY, "500.00", "DBIT", "Rema 1000", ""),
+            {**tx("p1", TODAY, "99.00", "DBIT", "Pending"), "status": "PDNG"},
+        ]
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        token = request.headers["Authorization"].removeprefix("Bearer ")
+        head = jwt.get_unverified_header(token)
+        assert head["kid"] == APP_ID and head["alg"] == "RS256"
+        claims = jwt.decode(token, self.public_key, algorithms=["RS256"], audience="api.enablebanking.com")
+        assert claims["iss"] == "enablebanking.com" and claims["exp"] - claims["iat"] <= 86400
+        path = request.url.path
+        if path == "/aspsps":
+            return httpx.Response(200, json={"aspsps": [
+                {"name": "Danske Bank", "country": "DK", "logo": "x", "maximum_consent_validity": 90 * 86400, "required_psu_headers": []},
+            ]})
+        if path == "/auth":
+            body = json.loads(request.content)
+            self.auth = body
+            return httpx.Response(200, json={"url": f"https://bank.example/login?state={body['state']}", "authorization_id": "a1"})
+        if path == "/sessions" and request.method == "POST":
+            assert json.loads(request.content) == {"code": "good-code"}
+            return httpx.Response(200, json={
+                "session_id": "s1",
+                "access": {"valid_until": (TODAY + timedelta(days=90)).isoformat() + "T00:00:00+00:00"},
+                "accounts": [
+                    {"uid": "u-budget", "account_id": {"iban": "DK5000400440116243"}, "name": "Budgetkonto", "currency": "DKK"},
+                    {"uid": "u-savings", "account_id": {"iban": "DK1111"}, "name": "Opsparing", "currency": "DKK"},
+                ],
+            })
+        if path.endswith("/balances"):
+            amount = self.balance if "u-budget" in path else "186000.00"
+            return httpx.Response(200, json={"balances": [
+                {"balance_type": "ITAV", "balance_amount": {"currency": "DKK", "amount": "1.00"}},
+                {"balance_type": "CLBD", "balance_amount": {"currency": "DKK", "amount": amount}, "reference_date": TODAY.isoformat()},
+            ]})
+        if path.endswith("/transactions"):
+            if "u-savings" in path:
+                return httpx.Response(200, json={"transactions": []})
+            # Two pages, to exercise continuation.
+            if "continuation_key" in request.url.params:
+                return httpx.Response(200, json={"transactions": self.budget_tx[2:]})
+            return httpx.Response(200, json={"transactions": self.budget_tx[:2], "continuation_key": "next"})
+        if path == "/sessions/s1" and request.method == "DELETE":
+            return httpx.Response(200, json={"message": "OK"})
+        return httpx.Response(404, json={"message": "nope", "error": "NOT_FOUND"})
+
+
+@pytest.fixture
+def bank(client, household, monkeypatch):
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
+    fake = FakeBank(key.public_key())
+    monkeypatch.setattr(banking, "TRANSPORT", httpx.MockTransport(fake.handler))
+    r = client.put("/api/bank/config", json={"app_id": APP_ID, "private_key": pem})
+    assert r.status_code == 200, r.text
+    return fake
+
+
+def connect(client):
+    r = client.post("/api/bank/connect", json={"name": "Danske Bank", "country": "dk"})
+    assert r.status_code == 200, r.text
+    state = parse_qs(urlparse(r.json()["url"]).query)["state"][0]
+    return client.get("/api/bank/callback", params={"code": "good-code", "state": state}, follow_redirects=False)
+
+
+def test_config_rejects_bad_key(client, household):
+    r = client.put("/api/bank/config", json={"app_id": APP_ID, "private_key": "not a key"})
+    assert r.status_code == 422
+    assert client.get("/api/bank/status").json()["configured"] is False
+
+
+def test_connect_and_sync(client, household, bank):
+    status = client.get("/api/bank/status").json()
+    assert status["configured"] and status["app_id"] == APP_ID
+    assert status["redirect_url"].endswith("/api/bank/callback")
+
+    r = connect(client)
+    assert r.status_code == 303 and "bank=connected" in r.headers["location"]
+    # Asked for the bank's own maximum (90 days), not more.
+    assert bank.auth["access"]["valid_until"].startswith((TODAY + timedelta(days=90)).isoformat())
+    assert bank.auth["redirect_url"].endswith("/api/bank/callback")
+
+    status = client.get("/api/bank/status").json()
+    assert [a["name"] for a in status["accounts"]] == ["Budgetkonto", "Opsparing"]
+    budget = status["accounts"][0]
+    assert budget["balance"] == 10000  # CLBD preferred over ITAV
+    # Pending transactions are skipped.
+    txs = client.get("/api/bank/transactions", params={"year": TODAY.year, "month": TODAY.month}).json()
+    assert [t["counterparty"] for t in txs] == ["Rema 1000"]
+    assert txs[0]["amount"] == -500
+
+
+def test_month_end_balances_from_bank(client, household, bank):
+    main = next(a for a in household["accounts"] if a["kind"] == "main")
+    connect(client)
+    budget = client.get("/api/bank/status").json()["accounts"][0]
+    client.patch(f"/api/bank/accounts/{budget['id']}", json={"account_id": main["id"]})
+    # End of last month: today's 10000 minus today's -500 = 10500.
+    y, m = LAST_MONTH_END.year, LAST_MONTH_END.month
+    s = client.get(f"/api/summary/{y}").json()
+    acc = next(a for a in s["accounts"] if a["id"] == main["id"])
+    assert acc["balances"][m - 1] == 10500
+    assert acc["source"][m - 1] == "bank"
+    # The month before: also undo last month's 129 and 12000 out.
+    y2, m2 = TWO_MONTHS_END.year, TWO_MONTHS_END.month
+    s2 = client.get(f"/api/summary/{y2}").json()
+    acc2 = next(a for a in s2["accounts"] if a["id"] == main["id"])
+    assert acc2["balances"][m2 - 1] == 10500 + 129 + 12000
+    # A typed-in balance is not overwritten by the next sync.
+    client.put(f"/api/accounts/{main['id']}/balance", json={"year": y, "month": m, "amount": 1})
+    client.post("/api/bank/sync")
+    s = client.get(f"/api/summary/{y}").json()
+    acc = next(a for a in s["accounts"] if a["id"] == main["id"])
+    assert acc["balances"][m - 1] == 1 and acc["source"][m - 1] == "manual"
+    # Unlinking removes what the bank wrote.
+    client.patch(f"/api/bank/accounts/{budget['id']}", json={"account_id": None})
+    s2 = client.get(f"/api/summary/{y2}").json()
+    acc2 = next(a for a in s2["accounts"] if a["id"] == main["id"])
+    assert acc2["source"][m2 - 1] is None
+
+
+def test_sorting_with_rules_and_actuals(client, household, bank):
+    alex = next(m for m in household["members"] if m["name"] == "Alex")
+    y, m = LAST_MONTH_END.year, LAST_MONTH_END.month
+    netflix = client.post("/api/items", json={
+        "member_id": alex["id"], "kind": "expense", "name": "Netflix", "year": y,
+        "amounts": [129 if i == m - 1 else None for i in range(12)],
+    }).json()
+    connect(client)
+    txs = client.get("/api/bank/transactions", params={"year": y, "month": m}).json()
+    nflx = next(t for t in txs if t["counterparty"] == "NETFLIX.COM")
+    assert nflx["suggestions"][0] == netflix["id"]  # same amount and the name matches
+    assert nflx["pattern"] == "NETFLIX.COM"
+    r = client.put(f"/api/bank/transactions/{nflx['id']}", json={"item_id": netflix["id"], "rule": "netflix"})
+    assert r.status_code == 200
+    items = client.get(f"/api/years/{y}/items").json()
+    assert next(i for i in items if i["id"] == netflix["id"])["actual"][m - 1] == 129
+
+    # The rule sorts it again after a fresh bank login (new ids for the same transactions).
+    bank.budget_tx.append(tx("t5", LAST_MONTH_END, "129.00", "DBIT", "NETFLIX.COM", "Netflix again"))
+    r = client.post("/api/bank/sync").json()
+    assert r["new"] >= 1 and r["sorted"] == 1
+    items = client.get(f"/api/years/{y}/items").json()
+    assert next(i for i in items if i["id"] == netflix["id"])["actual"][m - 1] == 258
+
+    # Ignoring with a rule.
+    rent = next(t for t in txs if t["text"] == "Husleje")
+    client.put(f"/api/bank/transactions/{rent['id']}", json={"ignored": True, "rule": "Husleje"})
+    rules = client.get("/api/bank/status").json()["rules"]
+    assert {r["pattern"]: r["ignore"] for r in rules} == {"netflix": False, "Husleje": True}
+
+
+def test_manual_sync_sends_psu_headers(client, household, bank):
+    connect(client)
+    bank.requests.clear()
+    client.post("/api/bank/sync", headers={"User-Agent": "phone"})
+    account_calls = [r for r in bank.requests if "/accounts/" in r.url.path]
+    assert account_calls and all(r.headers.get("Psu-User-Agent") == "phone" for r in account_calls)
+
+
+def test_expired_session(client, household, bank, monkeypatch):
+    connect(client)
+    original = bank.handler
+
+    def expired(request):
+        if "/accounts/" in request.url.path:
+            return httpx.Response(401, json={"message": "Session expired", "error": "EXPIRED_SESSION", "code": 401})
+        return original(request)
+
+    monkeypatch.setattr(banking, "TRANSPORT", httpx.MockTransport(expired))
+    r = client.post("/api/bank/sync").json()
+    assert r["errors"]
+    assert client.get("/api/bank/status").json()["sessions"][0]["status"] == "expired"
+
+
+def test_disconnect_keeps_history(client, household, bank):
+    connect(client)
+    client.delete("/api/bank/sessions/s1")
+    status = client.get("/api/bank/status").json()
+    assert status["sessions"] == [] and len(status["accounts"]) == 2
+    assert client.get("/api/bank/transactions", params={"year": TODAY.year, "month": TODAY.month}).json()
+
+
+def test_callback_rejects_unknown_state(client, household, bank):
+    r = client.get("/api/bank/callback", params={"code": "good-code", "state": "forged"}, follow_redirects=False)
+    assert "bank=error" in r.headers["location"]
+
+
+def test_suggested_rule_pattern_skips_what_changes():
+    assert banking.suggest_pattern("", "Husleje oktober 2026") == "Husleje"
+    assert banking.suggest_pattern("", "Overførsel Forbrugskonto") == "Overførsel Forbrugskonto"
+    assert banking.suggest_pattern("NETFLIX.COM", "NETFLIX.COM 1234") == "NETFLIX.COM"

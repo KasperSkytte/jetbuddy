@@ -1,6 +1,9 @@
+import asyncio
 import csv
 import io
 import json
+import logging
+import os
 import sqlite3
 import time
 from contextlib import asynccontextmanager
@@ -8,11 +11,13 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, auth, calc, db, importer
+from urllib.parse import quote
+
+from . import __version__, auth, banking, calc, db, importer
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 Kind = Literal["income", "expense"]
@@ -20,16 +25,41 @@ MAX_IMPORT_BYTES = 10 * 1024 * 1024
 
 
 
+log = logging.getLogger("jetbuddy")
+
+
+def _scheduled_sync() -> None:
+    conn = db.connect()
+    try:
+        if banking.due_for_sync(conn):
+            result = banking.sync(conn)
+            log.info("bank sync: %s", result)
+    finally:
+        conn.close()
+
+
+async def _bank_sync_loop() -> None:
+    """Sync connected banks every JETBUDDY_BANK_SYNC_HOURS (checked every 10 minutes)."""
+    while True:
+        await asyncio.sleep(600)
+        try:
+            await asyncio.to_thread(_scheduled_sync)
+        except Exception:
+            log.exception("scheduled bank sync failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     conn = db.connect()
     db.migrate(conn)
     conn.close()
+    task = asyncio.create_task(_bank_sync_loop())
     yield
+    task.cancel()
 
 
 app = FastAPI(
-    title="Nestegg", version=__version__, lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json"
+    title="Jetbuddy", version=__version__, lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json"
 )
 
 
@@ -42,6 +72,12 @@ def get_conn():
 
 
 Conn = Depends(get_conn)
+
+
+@app.exception_handler(banking.BankError)
+async def bank_error(request: Request, exc: banking.BankError):
+    status = 400 if exc.code in ("NOT_CONFIGURED", "UNKNOWN_STATE") else 502
+    return JSONResponse({"detail": str(exc), "code": exc.code}, status_code=status)
 
 
 @app.middleware("http")
@@ -108,12 +144,14 @@ def set_amounts(conn, item_id: int, year: int, values: list[int | None]) -> None
     conn.execute("INSERT OR IGNORE INTO item_years (item_id, year) VALUES (?, ?)", (item_id, year))
 
 
-def item_out(item: dict, amounts: list[int | None], prev: list[int | None]) -> dict:
+def item_out(item: dict, amounts: list[int | None], prev: list[int | None], actual: list[int | None] | None = None) -> dict:
     return {
         **item,
         "fixed": bool(item["fixed"]),
         "amounts": money_list(amounts),
         "prev": money_list(prev),
+        # What the bank transactions sorted onto this item add up to, per month.
+        "actual": money_list(actual or [None] * 12),
     }
 
 
@@ -419,10 +457,12 @@ def set_balance(id: int, body: BalanceIn, conn: sqlite3.Connection = Conn):
         conn.execute(
             "DELETE FROM account_balances WHERE account_id = ? AND year = ? AND month = ?", (id, body.year, body.month)
         )
+        # Clearing a typed-in balance lets the bank's come back.
+        banking.update_month_balances(conn)
     else:
         conn.execute(
-            "INSERT INTO account_balances (account_id, year, month, cents) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT (account_id, year, month) DO UPDATE SET cents = excluded.cents",
+            "INSERT INTO account_balances (account_id, year, month, cents, source) VALUES (?, ?, ?, ?, 'manual') "
+            "ON CONFLICT (account_id, year, month) DO UPDATE SET cents = excluded.cents, source = 'manual'",
             (id, body.year, body.month, db.to_cents(body.amount)),
         )
     return {"ok": True}
@@ -431,7 +471,7 @@ def set_balance(id: int, body: BalanceIn, conn: sqlite3.Connection = Conn):
 @app.get("/api/accounts/{id}/balances")
 def list_balances(id: int, conn: sqlite3.Connection = Conn):
     return [
-        {"year": r["year"], "month": r["month"], "amount": db.from_cents(r["cents"])}
+        {"year": r["year"], "month": r["month"], "amount": db.from_cents(r["cents"]), "source": r["source"]}
         for r in conn.execute(
             "SELECT * FROM account_balances WHERE account_id = ? ORDER BY year, month", (id,)
         )
@@ -449,12 +489,16 @@ def year_items(year: int, conn: sqlite3.Connection = Conn):
         return []
     amounts = calc.year_amounts(conn, year)
     prev = calc.year_amounts(conn, year - 1)
+    actual = banking.actuals(conn, year)
     items = rows(
         conn.execute(
             f"SELECT * FROM items WHERE id IN ({','.join('?' * len(ids))}) ORDER BY sort, id", ids
         )
     )
-    return [item_out(i, amounts.get(i["id"], [None] * 12), prev.get(i["id"], [None] * 12)) for i in items]
+    return [
+        item_out(i, amounts.get(i["id"], [None] * 12), prev.get(i["id"], [None] * 12), actual.get(i["id"]))
+        for i in items
+    ]
 
 
 class ItemIn(BaseModel):
@@ -479,7 +523,7 @@ def _get_item(conn, id: int, year: int) -> dict:
     item = one(conn, "SELECT * FROM items WHERE id = ?", (id,))
     amounts = calc.year_amounts(conn, year).get(id, [None] * 12)
     prev = calc.year_amounts(conn, year - 1).get(id, [None] * 12)
-    return item_out(item, amounts, prev)
+    return item_out(item, amounts, prev, banking.actuals(conn, year).get(id))
 
 
 @app.post("/api/items")
@@ -631,16 +675,19 @@ def trends(conn: sqlite3.Connection = Conn):
 # --------------------------------------------------------------------------
 # Backup, export and import
 
-TABLES = ["settings", "members", "categories", "accounts", "account_balances", "items", "item_years", "amounts"]
+TABLES = [
+    "settings", "members", "categories", "accounts", "account_balances", "items", "item_years", "amounts",
+    "bank_sessions", "bank_accounts", "bank_transactions", "bank_rules",
+]
 
 
 @app.get("/api/export")
 def export(conn: sqlite3.Connection = Conn):
-    data = {"format": "nestegg", "schema": len(db.MIGRATIONS), "exported": int(time.time())}
+    data = {"format": "jetbuddy", "schema": len(db.MIGRATIONS), "exported": int(time.time())}
     for t in TABLES:
         data[t] = rows(conn.execute(f"SELECT * FROM {t}"))
     stamp = time.strftime("%Y-%m-%d")
-    return JSONResponse(data, headers={"Content-Disposition": f'attachment; filename="nestegg-backup-{stamp}.json"'})
+    return JSONResponse(data, headers={"Content-Disposition": f'attachment; filename="jetbuddy-backup-{stamp}.json"'})
 
 
 @app.post("/api/restore")
@@ -649,10 +696,10 @@ async def restore(request: Request, conn: sqlite3.Connection = Conn):
         data = json.loads(await request.body())
     except ValueError:
         raise HTTPException(422, "not a JSON file")
-    if not isinstance(data, dict) or data.get("format") != "nestegg":
-        raise HTTPException(422, "not a Nestegg backup")
+    if not isinstance(data, dict) or data.get("format") != "jetbuddy":
+        raise HTTPException(422, "not a Jetbuddy backup")
     if data.get("schema", 0) > len(db.MIGRATIONS):
-        raise HTTPException(422, "this backup is from a newer version of Nestegg")
+        raise HTTPException(422, "this backup is from a newer version of Jetbuddy")
     try:
         with db.transaction(conn):
             for t in reversed(TABLES):
@@ -695,7 +742,7 @@ def export_csv(year: int, conn: sqlite3.Connection = Conn):
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="nestegg-{year}.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="jetbuddy-{year}.csv"'},
     )
 
 
@@ -757,6 +804,195 @@ def import_commit(body: ImportIn, conn: sqlite3.Connection = Conn):
                     created += 1
                 set_amounts(conn, item_id, body.year, cents_list(row.amounts))
     return {"created": created, "updated": updated}
+
+
+# --------------------------------------------------------------------------
+# Bank sync (Enable Banking)
+
+
+def _redirect_url(request: Request) -> str:
+    base = os.environ.get("JETBUDDY_PUBLIC_URL") or str(request.base_url)
+    return base.rstrip("/") + "/api/bank/callback"
+
+
+def _psu_headers(request: Request) -> dict:
+    """What we know about the person pressing Sync, so the bank counts it as
+    them looking rather than an automatic fetch."""
+    h = request.headers
+    out = {
+        "Psu-Ip-Address": request.client.host if request.client else "",
+        "Psu-User-Agent": h.get("user-agent", ""),
+        "Psu-Referer": h.get("referer", ""),
+        "Psu-Accept": h.get("accept", ""),
+        "Psu-Accept-Charset": h.get("accept-charset", ""),
+        "Psu-Accept-Encoding": h.get("accept-encoding", ""),
+        "Psu-Accept-Language": h.get("accept-language", ""),
+    }
+    return {k: v for k, v in out.items() if v}
+
+
+@app.get("/api/bank/status")
+def bank_status(request: Request, conn: sqlite3.Connection = Conn):
+    config = banking.get_config()
+    sessions = rows(conn.execute("SELECT id, aspsp_name, aspsp_country, valid_until, status, last_sync, last_error FROM bank_sessions ORDER BY created"))
+    accounts = rows(conn.execute(
+        "SELECT id, session_id, name, iban, currency, account_id, track, balance_cents, balance_date, history_from, synced_to "
+        "FROM bank_accounts ORDER BY id"
+    ))
+    for a in accounts:
+        a["balance"] = db.from_cents(a.pop("balance_cents"))
+        a["track"] = bool(a["track"])
+    rules = rows(conn.execute(
+        "SELECT r.*, i.name AS item_name FROM bank_rules r LEFT JOIN items i ON i.id = r.item_id ORDER BY r.pattern"
+    ))
+    for r in rules:
+        r["ignore"] = bool(r["ignore"])
+    unsorted = conn.execute(
+        "SELECT t.year, t.month, COUNT(*) AS n FROM bank_transactions t JOIN bank_accounts b ON b.id = t.bank_account_id "
+        "WHERE b.track = 1 AND t.item_id IS NULL AND t.ignored = 0 GROUP BY t.year, t.month"
+    ).fetchall()
+    return {
+        "configured": bool(config),
+        "from_env": banking.config_from_env(),
+        "app_id": config[0] if config else None,
+        "redirect_url": _redirect_url(request),
+        "sync_hours": banking.SYNC_HOURS,
+        "sessions": sessions,
+        "accounts": accounts,
+        "rules": rules,
+        "unsorted": {f"{r['year']}-{r['month']}": r["n"] for r in unsorted},
+    }
+
+
+class BankConfigIn(BaseModel):
+    app_id: str = Field(min_length=1, max_length=100)
+    private_key: str = Field(min_length=1, max_length=20000)
+
+
+@app.put("/api/bank/config")
+def bank_config(body: BankConfigIn):
+    if banking.config_from_env():
+        raise HTTPException(409, "Enable Banking is configured with environment variables")
+    try:
+        banking.save_config(body.app_id, body.private_key)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"ok": True}
+
+
+@app.delete("/api/bank/config")
+def bank_config_delete():
+    banking.delete_config()
+    return {"ok": True}
+
+
+_aspsp_cache: dict[str, tuple[float, list]] = {}
+
+
+@app.get("/api/bank/aspsps")
+def bank_aspsps(country: str = "DK"):
+    country = country.upper()[:2]
+    cached = _aspsp_cache.get(country)
+    if not cached or cached[0] < time.time() - 86400:
+        banks = [
+            {"name": a["name"], "country": a["country"], "logo": a.get("logo"), "beta": a.get("beta", False)}
+            for a in banking.client().aspsps(country)
+        ]
+        cached = _aspsp_cache[country] = (time.time(), sorted(banks, key=lambda a: a["name"].lower()))
+    return cached[1]
+
+
+class BankConnectIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    country: str = Field(min_length=2, max_length=2)
+
+
+@app.post("/api/bank/connect")
+def bank_connect(body: BankConnectIn, request: Request, conn: sqlite3.Connection = Conn):
+    return {"url": banking.connect_start(conn, body.name, body.country.upper(), _redirect_url(request))}
+
+
+@app.get("/api/bank/callback")
+def bank_callback(request: Request, state: str = "", code: str = "", error: str = "", error_description: str = "", conn: sqlite3.Connection = Conn):
+    """Where the bank sends the browser back to after logging in."""
+    if error or not code:
+        message = error_description or error or "no code from the bank"
+        return RedirectResponse(f"/#/settings?bank=error&message={quote(message)}", status_code=303)
+    try:
+        banking.connect_finish(conn, code, state)
+        result = banking.sync(conn, _psu_headers(request))
+        return RedirectResponse(f"/#/settings?bank=connected&new={result['new']}", status_code=303)
+    except banking.BankError as e:
+        return RedirectResponse(f"/#/settings?bank=error&message={quote(str(e))}", status_code=303)
+
+
+@app.post("/api/bank/sync")
+def bank_sync(request: Request, conn: sqlite3.Connection = Conn):
+    return banking.sync(conn, _psu_headers(request))
+
+
+@app.delete("/api/bank/sessions/{id}")
+def bank_disconnect(id: str, conn: sqlite3.Connection = Conn):
+    one(conn, "SELECT id FROM bank_sessions WHERE id = ?", (id,))
+    banking.disconnect(conn, id)
+    return {"ok": True}
+
+
+class BankAccountIn(BaseModel):
+    account_id: int | None = None
+    track: bool | None = None
+
+
+@app.patch("/api/bank/accounts/{id}")
+def bank_account_update(id: int, body: BankAccountIn, conn: sqlite3.Connection = Conn):
+    current = one(conn, "SELECT * FROM bank_accounts WHERE id = ?", (id,))
+    with db.transaction(conn):
+        if "account_id" in body.model_fields_set:
+            if body.account_id is not None:
+                one(conn, "SELECT id FROM accounts WHERE id = ?", (body.account_id,))
+            conn.execute("UPDATE bank_accounts SET account_id = ? WHERE id = ?", (body.account_id, id))
+            # Balances the bank gave the old account no longer apply.
+            if current["account_id"] is not None and current["account_id"] != body.account_id:
+                conn.execute("DELETE FROM account_balances WHERE account_id = ? AND source = 'bank'", (current["account_id"],))
+        if body.track is not None:
+            conn.execute("UPDATE bank_accounts SET track = ? WHERE id = ?", (int(body.track), id))
+        banking.update_month_balances(conn)
+    return {"ok": True}
+
+
+@app.get("/api/bank/transactions")
+def bank_transactions(year: int, month: int, conn: sqlite3.Connection = Conn):
+    return banking.month_transactions(conn, year, month)
+
+
+class AssignIn(BaseModel):
+    item_id: int | None = None
+    ignored: bool = False
+    # Also sort future (and other unsorted) transactions containing this text the same way.
+    rule: str | None = Field(None, max_length=200)
+
+
+@app.put("/api/bank/transactions/{id}")
+def bank_assign(id: int, body: AssignIn, conn: sqlite3.Connection = Conn):
+    tx = one(conn, "SELECT * FROM bank_transactions WHERE id = ?", (id,))
+    if body.item_id is not None:
+        one(conn, "SELECT id FROM items WHERE id = ?", (body.item_id,))
+    sorted_count = 0
+    with db.transaction(conn):
+        banking._assign(conn, id, body.item_id, body.ignored and body.item_id is None, tx["year"])
+        if body.rule and body.rule.strip() and (body.item_id is not None or body.ignored):
+            conn.execute(
+                "INSERT INTO bank_rules (pattern, item_id, ignore) VALUES (?, ?, ?)",
+                (body.rule.strip(), body.item_id, int(body.item_id is None)),
+            )
+            sorted_count = banking.apply_rules(conn)
+    return {"ok": True, "sorted": sorted_count}
+
+
+@app.delete("/api/bank/rules/{id}")
+def bank_rule_delete(id: int, conn: sqlite3.Connection = Conn):
+    conn.execute("DELETE FROM bank_rules WHERE id = ?", (id,))
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------

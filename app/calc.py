@@ -56,7 +56,9 @@ def _next_month(y: int, m: int) -> tuple[int, int]:
 
 
 def account_balances(conn: sqlite3.Connection, through_year: int) -> dict[int, dict]:
-    """account_id -> {(year, month): (cents, is_manual)} up to December of through_year.
+    """account_id -> {(year, month): (cents, source)} up to December of through_year.
+
+    source is 'manual' or 'bank' for a real balance, None for a computed one.
 
     A typed-in balance wins for its month; every other month is the previous
     month plus that month's flow. Before the first typed-in balance there is
@@ -65,8 +67,10 @@ def account_balances(conn: sqlite3.Connection, through_year: int) -> dict[int, d
     """
     net, linked = _flows(conn)
     snapshots: dict[int, dict[tuple[int, int], int]] = defaultdict(dict)
-    for r in conn.execute("SELECT account_id, year, month, cents FROM account_balances"):
+    sources: dict[tuple[int, int, int], str] = {}
+    for r in conn.execute("SELECT account_id, year, month, cents, source FROM account_balances"):
         snapshots[r["account_id"]][(r["year"], r["month"])] = r["cents"]
+        sources[(r["account_id"], r["year"], r["month"])] = r["source"]
 
     out: dict[int, dict] = {}
     for acc in conn.execute("SELECT id, kind FROM accounts"):
@@ -81,10 +85,10 @@ def account_balances(conn: sqlite3.Connection, through_year: int) -> dict[int, d
         while y <= through_year:
             if (y, m) in snaps:
                 balance = snaps[(y, m)]
-                series[(y, m)] = (balance, True)
+                series[(y, m)] = (balance, sources[(acc["id"], y, m)])
             else:
                 balance += flow.get((y, m), 0)
-                series[(y, m)] = (balance, False)
+                series[(y, m)] = (balance, None)
             y, m = _next_month(y, m)
         out[acc["id"]] = series
     return out
@@ -140,12 +144,13 @@ def summary(conn: sqlite3.Connection, year: int) -> dict:
     balances = account_balances(conn, year)
     accounts = []
     for acc_id, series in balances.items():
-        values, manual = [], []
+        values, manual, source = [], [], []
         for m in MONTHS:
-            cents, is_manual = series.get((year, m), (None, False))
+            cents, src = series.get((year, m), (None, None))
             values.append(cents)
-            manual.append(is_manual)
-        accounts.append({"id": acc_id, "balances": values, "manual": manual})
+            manual.append(src is not None)
+            source.append(src)
+        accounts.append({"id": acc_id, "balances": values, "manual": manual, "source": source})
 
     top = sorted(
         (t for t in item_totals if t[1] == "expense" and t[2] > 0), key=lambda t: -t[2]

@@ -7,6 +7,7 @@ import { AmountInput, Chips, Dot, Icon, Empty, seriesColor } from '../ui.js';
 import { members, itemsOf, monthTotals, categoryById, accountById, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
 import { CopyYearBanner } from './plan.js';
+import { TransactionsSheet } from './bank.js';
 
 function MonthPicker({ month, year, onChange }) {
   const long = monthNames('long');
@@ -51,6 +52,9 @@ function ItemRow({ item, month, year, household, onSaved, onOpen }) {
     await api.put(`/api/items/${item.id}/amount`, { year, month, amount: value });
     onSaved(item.id, month, value);
   };
+  const actual = item.actual?.[month - 1];
+  const planned = item.amounts[month - 1];
+  const matches = actual != null && planned != null && Math.abs(actual - planned) < 0.005;
   return html`<div class="list-row">
     <div class="main-col tap" onClick=${() => onOpen(item)} style="cursor:pointer">
       <div class="name">${item.name}</div>
@@ -59,6 +63,10 @@ function ItemRow({ item, month, year, household, onSaved, onOpen }) {
         ${item.note && html`<${Icon} name="note" size=${13} />`}
         ${meta && html`<span class="ellipsis">${meta}</span>`}
       </div>
+      ${actual != null && html`<div class="bank-line">
+        <span class=${matches ? 'good' : ''}><${Icon} name=${matches ? 'check' : 'bank'} size=${13} stroke=${2.2} /> ${t('month.bankPaid', { amount: amount(actual) })}</span>
+        ${!matches && html`<button class="btn small ghost" onClick=${(e) => { e.stopPropagation(); save(actual); }}>${t('month.useBank')}</button>`}
+      </div>`}
     </div>
     <${AmountInput} value=${item.amounts[month - 1]} onSave=${save} label=${item.name}
       placeholder=${prev != null ? amount(prev) : '–'} />
@@ -93,7 +101,7 @@ function MemberSection({ member, items, month, year, household, onSaved, onOpen,
   </section>`;
 }
 
-function Balances({ summary, month, year, household, onSaved }) {
+function Balances({ summary, month, year, household, bank, onSaved }) {
   const long = monthNames('long');
   const accounts = (summary?.accounts || [])
     .map((a) => ({ ...a, account: accountById(household, a.id) }))
@@ -104,7 +112,11 @@ function Balances({ summary, month, year, household, onSaved }) {
     <p class="small secondary" style="margin:0;padding:0 16px 6px">${t('month.balancesHint')}</p>
     <div class="list">${accounts.map((a) => {
       const manual = a.manual[month - 1];
+      const fromBank = a.source?.[month - 1] === 'bank';
       const value = a.balances[month - 1];
+      const now = new Date();
+      const linked = (bank?.accounts || []).filter((b) => b.account_id === a.id && b.balance != null);
+      const bankNow = year === now.getFullYear() && month === now.getMonth() + 1 && linked.length ? linked.reduce((s, b) => s + b.balance, 0) : null;
       const save = async (v) => {
         await api.put(`/api/accounts/${a.id}/balance`, { year, month, amount: v });
         onSaved();
@@ -112,7 +124,10 @@ function Balances({ summary, month, year, household, onSaved }) {
       return html`<div class="list-row" key=${a.id}>
         <${Dot} color=${seriesColor(a.account.color)} />
         <div class="main-col"><div class="name">${a.account.name}</div>
-          <div class="meta">${manual ? html`<span class="badge accent">${t('month.actual')}</span> ${t('month.clearToCompute')}` : value != null ? t('month.computed', { amount: money(value) }) : t('month.noBalance')}</div></div>
+          <div class="meta">${fromBank ? html`<span class="badge accent"><${Icon} name="bank" size=${11} stroke=${2.2} />${t('month.fromBank')}</span>`
+            : manual ? html`<span class="badge accent">${t('month.actual')}</span> ${t('month.clearToCompute')}`
+            : value != null ? t('month.computed', { amount: money(value) }) : t('month.noBalance')}</div>
+          ${bankNow != null && html`<div class="meta">${t('month.bankNow', { amount: money(bankNow) })}</div>`}</div>
         <${AmountInput} value=${manual ? value : null} manual=${manual} placeholder=${value != null ? amount(Math.round(value)) : '–'}
           onSave=${save} label=${a.account.name} />
       </div>`;
@@ -125,7 +140,11 @@ export function Month() {
   const { year, month, household } = store;
   const items = useData(`/api/years/${year}/items`);
   const summary = useData(`/api/summary/${year}`);
+  const bank = useData('/api/bank/status');
   const [editing, setEditing] = useState(null); // { item } or { member, kind }
+  const [sorting, setSorting] = useState(false);
+  const banked = bank.data?.configured && bank.data.accounts.some((a) => a.track);
+  const unsorted = bank.data?.unsorted[`${year}-${month}`] || 0;
   const people = members(household);
   const filter = people.some((m) => m.id === store.monthMember) ? store.monthMember : 'all';
 
@@ -146,6 +165,12 @@ export function Month() {
         <div><div class="label">${t('common.balance')}</div><div class=${'value ' + (totals?.net > 0.5 ? 'good' : totals?.net < -0.5 ? 'bad' : '')}>${totals ? signedMoney(totals.net) : '–'}</div></div>
       </div>
     </div>
+    ${banked && html`<button class="card bank-card" onClick=${() => setSorting(true)}>
+      <${Icon} name="bank" />
+      <span class="spacer">${unsorted ? html`<strong>${t('month.unsorted', { n: unsorted })}</strong><div class="small secondary">${t('month.unsortedHint')}</div>`
+        : html`<span class="secondary">${t('month.bankTransactions')}</span>`}</span>
+      <${Icon} name="right" size=${18} />
+    </button>`}
     <div style="margin-bottom:12px">
       <${Chips} label=${t('month.filter')} value=${filter} onChange=${(v) => setStore({ monthMember: v === 'all' ? null : v })}
         options=${[{ value: 'all', label: t('month.everyone') }, ...people.map((m) => ({ value: m.id, label: m.name, color: seriesColor(m.color) }))]} />
@@ -155,9 +180,11 @@ export function Month() {
       ${people.filter((m) => filter === 'all' || m.id === filter).map((m) => html`<${MemberSection} key=${m.id + '-' + month}
         member=${m} items=${itemsOf(list, m.id)} month=${month} year=${year} household=${household}
         onSaved=${onSaved} onOpen=${(item) => setEditing({ item })} onAdd=${(member) => setEditing({ member, kind: 'expense' })} />`)}
-      ${filter === 'all' && html`<${Balances} summary=${summary.data} month=${month} year=${year} household=${household} onSaved=${summary.reload} />`}
+      ${filter === 'all' && html`<${Balances} summary=${summary.data} month=${month} year=${year} household=${household} bank=${bank.data} onSaved=${summary.reload} />`}
     `}
     ${editing && html`<${ItemSheet} year=${year} item=${editing.item} member=${editing.member} kind=${editing.kind}
       focusMonth=${month} onClose=${() => setEditing(null)} onChanged=${() => { items.reload(); summary.reload(); }} />`}
+    ${sorting && html`<${TransactionsSheet} year=${year} month=${month} items=${items.data || []} onClose=${() => setSorting(false)}
+      onChanged=${() => { items.reload(); bank.reload(); }} />`}
   </div>`;
 }

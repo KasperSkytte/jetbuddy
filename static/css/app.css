@@ -1,4 +1,4 @@
-/* Nestegg - phone first, grows into a sidebar layout on wide screens. */
+/* Jetbuddy - phone first, grows into a sidebar layout on wide screens. */
 
 :root {
   color-scheme: light;
@@ -471,3 +471,18 @@ details.more summary { cursor: pointer; color: var(--accent-ink); font-weight: 5
 .logo-row .name { font-size: 26px; font-weight: 750; letter-spacing: -0.03em; }
 .loading { min-height: 60dvh; display: grid; place-items: center; color: var(--muted); }
 .refetching { opacity: 0.6; transition: opacity 0.2s; }
+
+/* ---------------------------------------------------------------- bank */
+
+.bank-card { display: flex; align-items: center; gap: 12px; width: 100%; margin: 0 0 12px; text-align: left; cursor: pointer; color: inherit; font: inherit; }
+.bank-card:hover { background: var(--surface-2); }
+.bank-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 3px; font-size: 12.5px; color: var(--text-2); }
+.bank-line span { display: inline-flex; align-items: center; gap: 4px; }
+.bank-line .btn.small { min-height: 26px; padding: 0 8px; font-size: 12.5px; color: var(--accent-ink); }
+.bank-account { padding: 10px 16px 6px 52px; border-top: 1px solid var(--border); }
+.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+.copy-box { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0 4px; padding: 8px 10px; background: var(--surface-2); border-radius: 10px; }
+.copy-box code { flex: 1 1 200px; font-size: 13px; word-break: break-all; }
+.tx-row { min-height: 58px; gap: 12px; }
+.tx-head { padding: 12px 14px; background: var(--surface-2); border-radius: 12px; }
+.rule-box { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 12px; border: 1px solid var(--border); border-radius: 12px; }

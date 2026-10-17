@@ -150,7 +150,7 @@ def test_import_spreadsheet_merges_items_across_years(client, household):
 
 
 def test_password(client, monkeypatch):
-    monkeypatch.setenv("NESTEGG_PASSWORD", "hunter2")
+    monkeypatch.setenv("JETBUDDY_PASSWORD", "hunter2")
     assert client.get("/api/state").status_code == 401
     assert client.get("/api/session").json() == {"auth_required": True, "logged_in": False}
     assert client.post("/api/login", json={"password": "nope"}).status_code == 401

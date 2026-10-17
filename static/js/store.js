@@ -9,7 +9,7 @@ import { setLocale } from './fmt.js';
 const now = new Date();
 const saved = (key, fallback) => {
   try {
-    const v = localStorage.getItem('nestegg.' + key);
+    const v = localStorage.getItem('jetbuddy.' + key);
     return v == null ? fallback : JSON.parse(v);
   } catch {
     return fallback;
@@ -17,7 +17,7 @@ const saved = (key, fallback) => {
 };
 const save = (key, value) => {
   try {
-    localStorage.setItem('nestegg.' + key, JSON.stringify(value));
+    localStorage.setItem('jetbuddy.' + key, JSON.stringify(value));
   } catch {}
 };
 

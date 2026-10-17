@@ -1,7 +1,7 @@
 """Optional single shared password.
 
-Nestegg is meant for a home network, so by default anyone who can reach it can
-use it. Set NESTEGG_PASSWORD to require a login; the session is a signed
+Jetbuddy is meant for a home network, so by default anyone who can reach it can
+use it. Set JETBUDDY_PASSWORD to require a login; the session is a signed
 cookie, so nothing about it is stored server side.
 """
 
@@ -13,16 +13,16 @@ import time
 
 from . import db
 
-COOKIE = "nestegg_session"
+COOKIE = "jetbuddy_session"
 SESSION_SECONDS = 365 * 24 * 3600
 
 
 def password() -> str:
-    return os.environ.get("NESTEGG_PASSWORD", "")
+    return os.environ.get("JETBUDDY_PASSWORD", "")
 
 
 def _secret() -> bytes:
-    env = os.environ.get("NESTEGG_SECRET")
+    env = os.environ.get("JETBUDDY_SECRET")
     if env:
         return env.encode()
     path = db.DATA_DIR / "secret.key"

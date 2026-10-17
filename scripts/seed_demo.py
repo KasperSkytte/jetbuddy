@@ -1,8 +1,8 @@
-"""Fill an empty Nestegg with a made-up family, to try it out or take screenshots.
+"""Fill an empty Jetbuddy with a made-up family, to try it out or take screenshots.
 
     python scripts/seed_demo.py http://localhost:8000
 
-Only works on a Nestegg that has not been set up yet.
+Only works on a Jetbuddy that has not been set up yet.
 """
 
 import json

@@ -5,8 +5,8 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-DATA_DIR = Path(os.environ.get("NESTEGG_DATA_DIR", "./data"))
-DB_PATH = DATA_DIR / "nestegg.db"
+DATA_DIR = Path(os.environ.get("JETBUDDY_DATA_DIR", "./data"))
+DB_PATH = DATA_DIR / "jetbuddy.db"
 
 # Each entry migrates the schema from version i to i+1. Never edit a released
 # migration; append a new one.
@@ -74,6 +74,69 @@ MIGRATIONS = [
     );
     CREATE INDEX amounts_year ON amounts (year);
     CREATE INDEX item_years_year ON item_years (year);
+    """,
+    # Bank connections through Enable Banking.
+    """
+    -- Where a balance came from: typed in by hand, or computed from the bank.
+    ALTER TABLE account_balances ADD COLUMN source TEXT NOT NULL DEFAULT 'manual';
+    -- A bank login waiting for the user to come back from the bank.
+    CREATE TABLE bank_pending (
+        state         TEXT PRIMARY KEY,
+        aspsp_name    TEXT NOT NULL,
+        aspsp_country TEXT NOT NULL,
+        psu_headers   TEXT NOT NULL DEFAULT '[]',
+        created       INTEGER NOT NULL
+    );
+    CREATE TABLE bank_sessions (
+        id            TEXT PRIMARY KEY,  -- Enable Banking's session_id
+        aspsp_name    TEXT NOT NULL,
+        aspsp_country TEXT NOT NULL,
+        valid_until   TEXT NOT NULL,
+        psu_headers   TEXT NOT NULL DEFAULT '[]',  -- PSU headers the bank requires
+        status        TEXT NOT NULL DEFAULT 'active',  -- active | expired
+        created       INTEGER NOT NULL,
+        last_sync     INTEGER,
+        last_error    TEXT
+    );
+    CREATE TABLE bank_accounts (
+        id            INTEGER PRIMARY KEY,
+        session_id    TEXT REFERENCES bank_sessions (id) ON DELETE SET NULL,
+        uid           TEXT NOT NULL,     -- changes with every new bank login
+        ident         TEXT NOT NULL,     -- stable: IBAN or identification hash
+        name          TEXT NOT NULL DEFAULT '',
+        iban          TEXT,
+        currency      TEXT,
+        account_id    INTEGER REFERENCES accounts (id) ON DELETE SET NULL,
+        track         INTEGER NOT NULL DEFAULT 1,  -- use its transactions in the budget
+        balance_cents INTEGER,
+        balance_date  TEXT,
+        history_from  TEXT,              -- earliest date transactions were fetched from
+        synced_to     TEXT               -- latest booking date fetched
+    );
+    CREATE UNIQUE INDEX bank_accounts_ident ON bank_accounts (ident);
+    CREATE TABLE bank_transactions (
+        id              INTEGER PRIMARY KEY,
+        bank_account_id INTEGER NOT NULL REFERENCES bank_accounts (id) ON DELETE CASCADE,
+        ext_id          TEXT NOT NULL,
+        booking_date    TEXT NOT NULL,
+        year            INTEGER NOT NULL,
+        month           INTEGER NOT NULL,
+        cents           INTEGER NOT NULL,  -- positive in, negative out
+        counterparty    TEXT NOT NULL DEFAULT '',
+        text            TEXT NOT NULL DEFAULT '',
+        item_id         INTEGER REFERENCES items (id) ON DELETE SET NULL,
+        ignored         INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (bank_account_id, ext_id)
+    );
+    CREATE INDEX bank_transactions_month ON bank_transactions (year, month);
+    CREATE INDEX bank_transactions_item ON bank_transactions (item_id);
+    -- "Transactions whose text contains NETFLIX belong to the Netflix item."
+    CREATE TABLE bank_rules (
+        id      INTEGER PRIMARY KEY,
+        pattern TEXT NOT NULL,
+        item_id INTEGER REFERENCES items (id) ON DELETE CASCADE,
+        ignore  INTEGER NOT NULL DEFAULT 0
+    );
     """,
 ]
 

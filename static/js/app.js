@@ -47,12 +47,12 @@ function Shell() {
     return () => removeEventListener('scroll', fn);
   }, []);
   useEffect(() => {
-    document.title = `${t(page.title)} · Nestegg`;
+    document.title = `${t(page.title)} · Jetbuddy`;
   }, [page, store.household]);
   const View = page.view;
   return html`<div class="shell">
     <nav class="nav" aria-label=${t('nav.label')}>
-      <div class="brand"><${Logo} size=${30} /> Nestegg</div>
+      <div class="brand"><${Logo} size=${30} /> Jetbuddy</div>
       ${PAGES.map((p) => html`<a key=${p.path} href=${'#/' + p.path} class=${p === page ? 'active' : ''} aria-current=${p === page ? 'page' : null}>
         <span class="icon-wrap"><${Icon} name=${p.icon} /></span>${t(p.title)}</a>`)}
     </nav>

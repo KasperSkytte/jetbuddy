@@ -56,15 +56,16 @@ function MonthTile({ label, longLabel, value, onCommit }) {
  * Create or edit a budget item for one year. Pass item to edit, or member +
  * kind to create.
  */
-export function ItemSheet({ year, item, member, kind, focusMonth, onClose, onChanged }) {
+export function ItemSheet({ year, item, member, kind, focusMonth, initial, onClose, onChanged, onCreated }) {
   const { household } = useStore();
   const isNew = !item;
-  const start = item?.amounts || Array(12).fill(null);
+  // initial: { name, month, amount }, e.g. from a bank transaction.
+  const start = item?.amounts || (initial ? applyPattern({ every: 12, from: initial.month - 1, to: 11 }, initial.amount) : Array(12).fill(null));
   const detected = detectPattern(start);
   const hasValues = start.some((v) => v != null);
 
   const [form, setForm] = useState(() => ({
-    name: item?.name || '',
+    name: item?.name || initial?.name || '',
     member_id: item?.member_id ?? member?.id,
     kind: item?.kind || kind || 'expense',
     category_id: item?.category_id ?? null,
@@ -141,7 +142,8 @@ export function ItemSheet({ year, item, member, kind, focusMonth, onClose, onCha
     setBusy(true);
     try {
       if (isNew) {
-        await api.post('/api/items', { ...form, name: form.name.trim(), year, amounts: values });
+        const created = await api.post('/api/items', { ...form, name: form.name.trim(), year, amounts: values });
+        onCreated?.(created);
       } else {
         await api.patch(`/api/items/${item.id}?year=${year}`, { ...form, name: form.name.trim() });
         await api.put(`/api/items/${item.id}/amounts`, { year, amounts: values });

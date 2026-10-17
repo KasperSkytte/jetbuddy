@@ -8,7 +8,7 @@ from app import db
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DATA_DIR", tmp_path)
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
-    monkeypatch.delenv("NESTEGG_PASSWORD", raising=False)
+    monkeypatch.delenv("JETBUDDY_PASSWORD", raising=False)
     from app.main import app
 
     with TestClient(app) as c:

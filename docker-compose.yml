@@ -1,9 +1,9 @@
 services:
-  nestegg:
-    image: ghcr.io/kasperskytte/nestegg:latest
+  jetbuddy:
+    image: ghcr.io/kasperskytte/jetbuddy:latest
     # Or build it yourself from this folder:
     # build: .
-    container_name: nestegg
+    container_name: jetbuddy
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -12,4 +12,4 @@ services:
     environment:
       # Optional: require a password. Leave empty for no login (fine on a
       # trusted home network).
-      NESTEGG_PASSWORD: ""
+      JETBUDDY_PASSWORD: ""

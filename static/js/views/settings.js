@@ -6,6 +6,7 @@ import { money, monthNames } from '../fmt.js';
 import { Sheet, Swatches, Switch, Segmented, Dot, Icon, seriesColor, toast, toastError } from '../ui.js';
 import { categories } from '../model.js';
 import { ImportSheet } from './import.js';
+import { BankSettings } from './bank.js';
 
 export const LOCALES = ['en-US', 'en-GB', 'da-DK', 'de-DE', 'de-CH', 'sv-SE', 'nb-NO', 'fi-FI', 'nl-NL', 'fr-FR', 'es-ES', 'it-IT', 'pl-PL'];
 export const CURRENCIES = ['DKK', 'EUR', 'USD', 'GBP', 'SEK', 'NOK', 'ISK', 'CHF', 'PLN', 'CZK', 'CAD', 'AUD', 'NZD', 'JPY', 'INR', 'BRL', 'ZAR'];
@@ -45,7 +46,7 @@ function HouseholdForm() {
     const settings = await api.put('/api/settings', form);
     applySettings(settings);
   }, () => toast(t('common.saved')));
-  return html`<${Section} title=${t('settings.household')} icon="egg">
+  return html`<${Section} title=${t('settings.household')} icon="home">
     <div class="form-grid two" style="padding:6px 16px 16px">
       <label class="field"><span>${t('settings.householdName')}</span>
         <input class="input" value=${form.household} onInput=${(e) => set({ household: e.target.value })} maxlength="100" /></label>
@@ -178,7 +179,7 @@ function AccountSheet({ account, onClose }) {
         <span class="hint">${t('settings.actualBalancesHint')}</span>
         ${balances.data?.length ? html`<div class="list" style="border:1px solid var(--border);border-radius:12px">
           ${balances.data.map((b) => html`<div class="list-row" key=${b.year + '-' + b.month} style="min-height:44px">
-            <div class="main-col" style="text-transform:capitalize">${long[b.month - 1]} ${b.year}</div>
+            <div class="main-col" style="text-transform:capitalize">${long[b.month - 1]} ${b.year}${b.source === 'bank' ? html` <span class="badge accent" style="text-transform:none">${t('month.fromBank')}</span>` : ''}</div>
             <span class="amount">${money(b.amount)}</span>
             <button class="btn ghost icon small" onClick=${() => clearBalance(b)} aria-label=${t('common.delete')}><${Icon} name="close" size=${16} /></button>
           </div>`)}</div>` : html`<span class="small muted">${t('settings.noBalances')}</span>`}
@@ -242,12 +243,13 @@ export function Settings() {
     <${HouseholdForm} key=${JSON.stringify(household.settings)} />
     <${People} />
     <${Accounts} />
+    <${BankSettings} />
     <${Categories} />
     <${Data} />
     <section class="card" style="margin-bottom:12px">
-      <div class="row"><${Icon} name="info" /><strong class="spacer">Nestegg ${household.version}</strong>
+      <div class="row"><${Icon} name="info" /><strong class="spacer">Jetbuddy ${household.version}</strong>
         ${session.data?.auth_required && html`<button class="btn small" onClick=${logout}><${Icon} name="logout" size=${16} />${t('settings.logout')}</button>`}</div>
-      <p class="small secondary" style="margin:8px 0 0">${t('settings.about')} <a href="https://github.com/kasperskytte/nestegg" target="_blank" rel="noopener">GitHub</a></p>
+      <p class="small secondary" style="margin:8px 0 0">${t('settings.about')} <a href="https://github.com/kasperskytte/jetbuddy" target="_blank" rel="noopener">GitHub</a></p>
     </section>
   </div>`;
 }

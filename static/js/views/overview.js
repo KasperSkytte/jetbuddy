@@ -128,7 +128,7 @@ export function Overview() {
               <span class="num" style="font-weight:650">${money(value)}</span></div>
             <div class="small muted" style="margin:0 0 4px 18px">
               ${known ? t('overview.accountAt', { month: long[refMonth] }) : t('overview.accountUnknown')}
-              ${a.manual[refMonth] && html` · <span class="badge accent">${t('month.actual')}</span>`}</div>
+              ${a.manual[refMonth] && html` · <span class="badge accent">${a.source?.[refMonth] === 'bank' ? t('month.fromBank') : t('month.actual')}</span>`}</div>
             ${known && html`<${LineChart} labels=${short} titles=${long} series=${[{ name: a.account.name, color: seriesColor(a.account.color), values: a.balances }]} height=${130} label=${a.account.name} />`}
           </div>`;
         })}
