@@ -2,37 +2,49 @@
 
 let fmt = null;
 
-export function setLocale(locale, currency) {
-  locale = locale || navigator.language || 'en-US';
-  currency = currency || 'USD';
-  let money, moneyShort, plain, compact, pct;
-  try {
-    money = new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 0, minimumFractionDigits: 0 });
-  } catch {
-    money = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
-  }
-  try {
-    moneyShort = new Intl.NumberFormat(locale, { style: 'currency', currency, notation: 'compact', maximumFractionDigits: 1 });
-  } catch {
-    moneyShort = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 });
-  }
-  plain = new Intl.NumberFormat(locale, { maximumFractionDigits: 2, minimumFractionDigits: 0 });
-  compact = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 });
-  pct = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 0 });
-  const parts = new Intl.NumberFormat(locale).formatToParts(1234.5);
-  const decimal = parts.find((p) => p.type === 'decimal')?.value || '.';
-  fmt = { locale, currency, money, moneyShort, plain, compact, pct, decimal };
+// Month names, the currency symbol and its placement follow the app's
+// language; the decimal separator is a setting of its own (comma or dot), and
+// the thousands separator is simply the other one.
+const LANGUAGE_LOCALE = { da: 'da-DK', en: 'en-GB' };
+
+export function defaultDecimal(language) {
+  return language === 'en' ? '.' : ',';
 }
 
-setLocale();
+export function setFormat({ language = 'en', currency = 'USD', decimal } = {}) {
+  const locale = LANGUAGE_LOCALE[language] || 'en-GB';
+  const dec = decimal === '.' || decimal === ',' ? decimal : defaultDecimal(language);
+  const make = (options, fallback) => {
+    try {
+      return new Intl.NumberFormat(locale, options);
+    } catch {
+      return new Intl.NumberFormat(locale, fallback);
+    }
+  };
+  fmt = {
+    locale,
+    decimal: dec,
+    group: dec === ',' ? '.' : ',',
+    money: make({ style: 'currency', currency, maximumFractionDigits: 0, minimumFractionDigits: 0 }, { maximumFractionDigits: 0 }),
+    moneyShort: make({ style: 'currency', currency, notation: 'compact', maximumFractionDigits: 1 }, { notation: 'compact', maximumFractionDigits: 1 }),
+    plain: make({ maximumFractionDigits: 2, minimumFractionDigits: 0 }),
+    compact: make({ notation: 'compact', maximumFractionDigits: 1 }),
+    pct: make({ style: 'percent', maximumFractionDigits: 0 }),
+  };
+}
 
-export const locale = () => fmt.locale;
+/** Format with the chosen separators instead of the locale's own. */
+function apply(nf, v) {
+  return nf.formatToParts(v).map((p) => (p.type === 'decimal' ? fmt.decimal : p.type === 'group' ? fmt.group : p.value)).join('');
+}
+
+setFormat();
 
 /** 12 345 kr. - for totals. Rounded to whole units. */
 export function money(v) {
   if (v == null || Number.isNaN(v)) return '–';
   // Avoid "-0 kr." for tiny negative rounding.
-  return fmt.money.format(Math.abs(v) < 0.5 ? 0 : v);
+  return apply(fmt.money, Math.abs(v) < 0.5 ? 0 : v);
 }
 
 /** +12 345 kr. / −12 345 kr. - for balances where the sign matters. */
@@ -46,54 +58,42 @@ export function signedMoney(v) {
 /** 12,3K kr. - for axis ticks and tight spots. */
 export function moneyShort(v) {
   if (v == null) return '–';
-  return fmt.moneyShort.format(v);
+  return apply(fmt.moneyShort, v);
 }
 
 export function compact(v) {
-  return fmt.compact.format(v);
+  return apply(fmt.compact, v);
 }
 
 /** 1.234,5 - for amounts in lists and inputs, no currency. */
 export function amount(v) {
   if (v == null || v === '') return '';
-  return fmt.plain.format(v);
+  return apply(fmt.plain, v);
 }
 
 export function percent(v) {
   if (v == null || !Number.isFinite(v)) return '–';
-  return fmt.pct.format(v);
+  return apply(fmt.pct, v);
 }
 
 /**
- * Parse what someone typed into an amount box. Accepts the locale's own
- * format and the common alternatives (1.234,50 / 1,234.50 / 1234.5), and
- * simple sums like 120+45 for adding up receipts. Returns null for empty,
+ * Parse what someone typed into an amount box, using the decimal separator
+ * from the settings. Anything else (thousands separators, spaces, "kr.") is
+ * ignored. Simple sums like 120+45 add up receipts. Returns null for empty,
  * NaN for invalid.
  */
 export function parseAmount(text) {
-  if (text == null) return null;
-  let s = String(text).trim().replace(/[\s  ']/g, '').replace(/[−–]/g, '-');
-  if (s === '') return null;
-  if (/^[-+]?[\d.,]+([-+][\d.,]+)+$/.test(s)) {
-    const terms = s.match(/[-+]?[\d.,]+/g).map(parseAmount);
-    return terms.some(Number.isNaN) ? NaN : Math.round(terms.reduce((a, b) => a + b, 0) * 100) / 100;
+  if (text == null || String(text).trim() === '') return null;
+  const dec = fmt.decimal;
+  const s = String(text).replace(/[−–]/g, '-').replace(dec === ',' ? /[^0-9,+-]/g : /[^0-9.+-]/g, '');
+  const terms = s.match(/[+-]?[^+-]+/g);
+  if (!terms) return NaN;
+  let total = 0;
+  for (const term of terms) {
+    if (term.split(dec).length > 2 || !/\d/.test(term)) return NaN;
+    total += Number(term.replace(dec, '.'));
   }
-  if (!/^[-+]?[\d.,]+$/.test(s)) return NaN;
-  const lastComma = s.lastIndexOf(',');
-  const lastDot = s.lastIndexOf('.');
-  if (lastComma >= 0 && lastDot >= 0) {
-    // Whichever comes last is the decimal separator.
-    s = lastComma > lastDot ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
-  } else if (lastComma >= 0 || lastDot >= 0) {
-    const sep = lastComma >= 0 ? ',' : '.';
-    const count = s.split(sep).length - 1;
-    const after = s.length - s.lastIndexOf(sep) - 1;
-    // "1.234" in a comma-decimal locale (or "1,234" in a dot one) is thousands.
-    const isThousands = count > 1 || (sep !== fmt.decimal && after === 3);
-    s = isThousands ? s.split(sep).join('') : s.replace(sep, '.');
-  }
-  const n = Number(s);
-  return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
+  return Number.isFinite(total) ? Math.round(total * 100) / 100 : NaN;
 }
 
 /** Short and long month names, January first. */

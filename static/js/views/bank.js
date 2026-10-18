@@ -5,7 +5,7 @@ import { api } from '../api.js';
 import { useStore, useData, bump } from '../store.js';
 import { t } from '../i18n.js';
 import { money, amount, monthNames } from '../fmt.js';
-import { Sheet, Switch, Icon, Dot, Empty, seriesColor, toast, toastError } from '../ui.js';
+import { Sheet, Switch, Icon, Dot, Empty, seriesColor, toast, toastError, errorText } from '../ui.js';
 import { members, memberById, memberColor } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
 
@@ -195,7 +195,8 @@ function ConfiguredInfo({ status }) {
 
 function BankPicker({ onClose, preset }) {
   const { household } = useStore();
-  const region = (household.settings.locale || '').split('-')[1];
+  const BY_CURRENCY = { DKK: 'DK', SEK: 'SE', NOK: 'NO', ISK: 'IS', GBP: 'GB', PLN: 'PL', CZK: 'CZ' };
+  const region = BY_CURRENCY[household.settings.currency] || (household.settings.language === 'da' ? 'DK' : null);
   const [country, setCountry] = useState(preset?.country || (COUNTRIES.includes(region) ? region : 'DK'));
   const [query, setQuery] = useState('');
   const banks = useData(`/api/bank/aspsps?country=${country}`);
@@ -248,7 +249,7 @@ export function BankSettings() {
     const q = new URLSearchParams(location.hash.split('?')[1] || '');
     if (!q.get('bank')) return;
     if (q.get('bank') === 'connected') toast(t('bank.connected', { n: q.get('new') || 0 }));
-    else toast(t('bank.connectFailed', { message: q.get('message') || '' }), { error: true });
+    else toast(t('bank.connectFailed', { message: errorText({ code: q.get('code'), message: q.get('message') || '' }) }), { error: true });
     history.replaceState(null, '', '#/settings');
     bump();
   }, []);

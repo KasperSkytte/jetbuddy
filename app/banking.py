@@ -60,6 +60,12 @@ _sync_lock = threading.Lock()  # one sync at a time (manual and scheduled)
 SESSION_GONE = {"EXPIRED_SESSION", "CLOSED_SESSION", "REVOKED_SESSION", "SESSION_DOES_NOT_EXIST", "UNAUTHORIZED_ACCESS"}
 
 
+class ConfigError(ValueError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 class BankError(Exception):
     def __init__(self, status: int, code: str, message: str):
         super().__init__(message)
@@ -147,16 +153,16 @@ def save_config(bdir: Path, app_id: str, private_key: str | None = None) -> None
     cert = None
     if private_key is None:
         if not f["pending_key"].exists():
-            raise ValueError("make the certificate first")
+            raise ConfigError("NO_CERTIFICATE", "make the certificate first")
         private_key = f["pending_key"].read_text()
         cert = f["pending_cert"].read_text()
     try:
         load_pem_private_key(private_key.encode(), password=None)
     except (ValueError, TypeError) as e:
-        raise ValueError("not a valid private key (.pem or .key file)") from e
+        raise ConfigError("INVALID_KEY", "not a valid private key (.pem or .key file)") from e
     app_id = app_id.strip()
     if not re.fullmatch(r"[0-9a-fA-F-]{20,64}", app_id):
-        raise ValueError("that doesn't look like an application ID (it looks like aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee)")
+        raise ConfigError("INVALID_APP_ID", "that doesn't look like an application ID (it looks like aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee)")
     _write_secret(f["key"], private_key.strip() + "\n")
     f["config"].write_text(json.dumps({"app_id": app_id}))
     if cert:
@@ -393,12 +399,44 @@ def connect_finish(conn: sqlite3.Connection, bdir: Path, code: str, state: str) 
                 "name = excluded.name, iban = excluded.iban, currency = excluded.currency",
                 (session["session_id"], acc["uid"], ident, name, iban, acc.get("currency")),
             )
+        link_accounts(conn)
         # A session that no longer has accounts was replaced by this one.
         conn.execute(
             "DELETE FROM bank_sessions WHERE id != ? AND id NOT IN (SELECT session_id FROM bank_accounts WHERE session_id IS NOT NULL)",
             (session["session_id"],),
         )
     return session["session_id"]
+
+
+_SAVINGS = re.compile(r"opspar|spare|savings|saving|sparkonto|børneopsparing", re.IGNORECASE)
+
+
+def link_accounts(conn: sqlite3.Connection) -> None:
+    """Give every new bank account a Jetbuddy account, so balances show up
+    without any setting up: the account with the same name, else a free
+    budget or savings account of the right kind, else a new one. Savings
+    accounts follow the balance only; their transactions are transfers in."""
+    accounts = [dict(r) for r in conn.execute("SELECT * FROM accounts WHERE archived = 0 ORDER BY sort, id")]
+    taken = {r[0] for r in conn.execute("SELECT account_id FROM bank_accounts WHERE account_id IS NOT NULL")}
+    for ba in conn.execute("SELECT * FROM bank_accounts WHERE account_id IS NULL ORDER BY id").fetchall():
+        name = (ba["name"] or "").strip()
+        savings = bool(_SAVINGS.search(name))
+        free = [a for a in accounts if a["id"] not in taken]
+        match = next((a for a in free if a["name"].strip().lower() == name.lower()), None)
+        if match is None:
+            match = next((a for a in free if a["kind"] == ("savings" if savings else "main")), None)
+        if match is None:
+            has_main = any(a["kind"] == "main" for a in accounts)
+            kind = "main" if not savings and not has_main else "savings"
+            cur = conn.execute(
+                "INSERT INTO accounts (name, kind, color, sort) VALUES (?, ?, ?, (SELECT COALESCE(MAX(sort), -1) + 1 FROM accounts))",
+                (name or "Bank", kind, len(accounts) % 8),
+            )
+            match = {"id": cur.lastrowid, "name": name, "kind": kind}
+            accounts.append(match)
+        taken.add(match["id"])
+        track = 0 if savings or (match["kind"] == "savings" and _SAVINGS.search(match["name"])) else 1
+        conn.execute("UPDATE bank_accounts SET account_id = ?, track = ? WHERE id = ?", (match["id"], track, ba["id"]))
 
 
 def disconnect(conn: sqlite3.Connection, bdir: Path, session_id: str) -> None:

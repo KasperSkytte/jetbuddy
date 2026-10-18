@@ -4,23 +4,19 @@ from app.importer import parse_number
 
 
 @pytest.mark.parametrize(
-    "text, value",
+    "text, decimal, value",
     [
-        ("1234", 1234), ("-512,40", -512.40), ("1.234,50", 1234.5), ("1,234.50", 1234.5),
-        ("1 234", 1234), ("1.234.567", 1234567), ("12,5", 12.5), ("1,234", 1234),
-        ("kr. 99,95", 99.95), ("(500)", -500), ("", None), ("abc", None), (42, 42),
-        # Danish thousands separators in text cells
-        ("31.250", 31250), ("2.500", 2500), ("-10.184", -12000), ("31.250 kr.", 31250),
-        ("\u22122.500", -2500), ("149.95", 149.95), ("1.5", 1.5),
+        # comma as the decimal separator: dots and everything else are ignored
+        ("1234", ",", 1234), ("-512,40", ",", -512.40), ("1.234,50", ",", 1234.5), ("31.250", ",", 31250),
+        ("2.500", ",", 2500), ("1.234.567", ",", 1234567), ("1 234,5", ",", 1234.5), ("31.250 kr.", ",", 31250),
+        ("kr. 99,95", ",", 99.95), ("\u22122.500", ",", -2500), ("(500)", ",", -500), ("12,5", ",", 12.5),
+        # dot as the decimal separator
+        ("1,234.50", ".", 1234.5), ("149.95", ".", 149.95), ("2,500", ".", 2500), ("-12,000", ".", -12000),
+        # not amounts
+        ("", ",", None), ("abc", ",", None), ("Jan", ",", None), ("1,2,3", ",", None), ("1.2.3", ".", None),
+        # real numbers in the spreadsheet are taken as they are
+        (42, ",", 42), (149.95, ".", 149.95),
     ],
 )
-def test_parse_number(text, value):
-    assert parse_number(text) == value
-
-
-@pytest.mark.parametrize(
-    "text, decimal, value",
-    [("1.234", ",", 1234), ("1.234", ".", 1.234), ("512,400", ",", 512.40), ("512,400", ".", 625920), ("31.250,00", ",", 31250)],
-)
-def test_parse_number_with_decimal_separator(text, decimal, value):
+def test_parse_number(text, decimal, value):
     assert parse_number(text, decimal) == value

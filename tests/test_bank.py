@@ -282,3 +282,31 @@ def test_suggested_rule_pattern_skips_what_changes():
     assert banking.suggest_pattern("", "Husleje oktober 2026") == "Husleje"
     assert banking.suggest_pattern("", "Overførsel Forbrugskonto") == "Overførsel Forbrugskonto"
     assert banking.suggest_pattern("NETFLIX.COM", "NETFLIX.COM 1234") == "NETFLIX.COM"
+
+
+def test_bank_accounts_are_linked_automatically(client, household, bank):
+    """Budgetkonto and Opsparing match the household's accounts by name; a
+    third account gets a new Jetbuddy account of its own."""
+    original = bank.handler
+
+    def three_accounts(request):
+        r = original(request)
+        if request.url.path == "/sessions" and request.method == "POST":
+            data = json.loads(r.content)
+            data["accounts"].append({"uid": "u-joint", "account_id": {"iban": "DK2222"}, "name": "Fælleskonto", "currency": "DKK"})
+            return httpx.Response(200, json=data)
+        if "u-joint" in request.url.path:
+            return original(httpx.Request(request.method, str(request.url).replace("u-joint", "u-savings"), headers=request.headers))
+        return r
+
+    import app.banking as b
+    b.TRANSPORT = httpx.MockTransport(three_accounts)
+    connect(client)
+    state = client.get("/api/state").json()
+    names = {a["id"]: a["name"] for a in state["accounts"]}
+    linked = {a["name"]: (names.get(a["account_id"]), a["track"]) for a in client.get("/api/bank/status").json()["accounts"]}
+    # The test household's accounts are called "Budget account" and "Savings".
+    assert linked["Budgetkonto"] == ("Budget account", True)
+    assert linked["Opsparing"] == ("Savings", False)
+    assert linked["Fælleskonto"] == ("Fælleskonto", True)
+    assert [a["name"] for a in state["accounts"]] == ["Budget account", "Savings", "Fælleskonto"]

@@ -30,6 +30,13 @@ MAX_IMPORT_BYTES = 10 * 1024 * 1024
 log = logging.getLogger("jetbuddy")
 
 
+class AppError(HTTPException):
+    """An error the app shows to people: the code lets it say it in their language."""
+
+    def __init__(self, status: int, code: str, message: str):
+        super().__init__(status, {"code": code, "message": message})
+
+
 def budget_ids() -> list[int]:
     server = db.open_server()
     try:
@@ -94,7 +101,7 @@ def budget_dir(request: Request) -> Path:
 @app.exception_handler(banking.BankError)
 async def bank_error(request: Request, exc: banking.BankError):
     status = 400 if exc.code in ("NOT_CONFIGURED", "UNKNOWN_STATE") else 502
-    return JSONResponse({"detail": str(exc), "code": exc.code}, status_code=status)
+    return JSONResponse({"detail": {"code": exc.code, "message": str(exc)}}, status_code=status)
 
 
 OPEN_PATHS = {"/api/session", "/api/login", "/api/logout", "/api/health", "/api/budgets"}
@@ -128,13 +135,13 @@ def rows(cursor) -> list[dict]:
 def one(conn, sql, args=()) -> dict:
     r = conn.execute(sql, args).fetchone()
     if r is None:
-        raise HTTPException(404, "not found")
+        raise AppError(404, "NOT_FOUND", "not found")
     return dict(r)
 
 
 def cents_list(values: list[float | None]) -> list[int | None]:
     if len(values) != 12:
-        raise HTTPException(422, "amounts must have 12 values")
+        raise AppError(422, "INVALID", "amounts must have 12 values")
     return [db.to_cents(v) for v in values]
 
 
@@ -196,7 +203,7 @@ def health():
 def _login_name(login: str) -> str:
     login = login.strip().lower()
     if len(login) < 2 or any(ch.isspace() for ch in login):
-        raise HTTPException(422, "the username must be at least 2 characters, without spaces")
+        raise AppError(422, "USERNAME_INVALID", "the username must be at least 2 characters, without spaces")
     return login
 
 
@@ -215,13 +222,13 @@ def _set_session(request: Request, response: Response, budget_id: int, password_
 def _check_password(request: Request, row, password: str) -> None:
     client = request.client.host if request.client else "?"
     if auth.too_many_failures(client):
-        raise HTTPException(429, "too many attempts, try again in 15 minutes")
+        raise AppError(429, "TOO_MANY_ATTEMPTS", "too many attempts, try again in 15 minutes")
     if row is None:
         auth.burn_time(password)
     if row is None or not auth.verify_password(password, row["password_hash"]):
         auth.record_failure(client)
         time.sleep(1)
-        raise HTTPException(401, "wrong username or password")
+        raise AppError(401, "WRONG_LOGIN", "wrong username or password")
 
 
 @app.get("/api/session")
@@ -279,7 +286,7 @@ def change_login_details(body: LoginDetailsIn, request: Request, response: Respo
                 login = _login_name(body.login)
                 taken = server.execute("SELECT 1 FROM budgets WHERE login = ? AND id != ?", (login, row["id"])).fetchone()
                 if taken:
-                    raise HTTPException(409, "that username is taken")
+                    raise AppError(409, "USERNAME_TAKEN", "that username is taken")
                 server.execute("UPDATE budgets SET login = ? WHERE id = ?", (login, row["id"]))
             if body.password is not None:
                 password_hash = auth.hash_password(body.password)
@@ -336,7 +343,7 @@ DEFAULT_ACCOUNTS = {
 class SetupIn(BaseModel):
     household: str = Field(min_length=1, max_length=100)
     language: str = "en"
-    locale: str = "en-US"
+    decimal: Literal[",", "."] = ","
     currency: str = "USD"
     members: list[str] = Field(min_length=1, max_length=20)
     shared_name: str = Field("Shared", min_length=1, max_length=60)
@@ -382,9 +389,9 @@ def create_budget(body: NewBudgetIn, request: Request, response: Response):
     try:
         count = server.execute("SELECT COUNT(*) FROM budgets").fetchone()[0]
         if count and not auth.allow_new_budgets():
-            raise HTTPException(403, "new budgets are turned off on this server")
+            raise AppError(403, "NEW_BUDGETS_OFF", "new budgets are turned off on this server")
         if server.execute("SELECT 1 FROM budgets WHERE login = ?", (login,)).fetchone():
-            raise HTTPException(409, "that username is taken")
+            raise AppError(409, "USERNAME_TAKEN", "that username is taken")
         budget_id = server.execute(
             "INSERT INTO budgets (name, login, password_hash, created) VALUES (?, ?, ?, ?)",
             (body.household.strip(), login, password_hash, int(time.time())),
@@ -406,7 +413,7 @@ def _setup_household(conn: sqlite3.Connection, body: SetupIn) -> None:
     with db.transaction(conn):
         set_settings(
             conn,
-            {"household": body.household, "language": body.language, "locale": body.locale, "currency": body.currency},
+            {"household": body.household, "language": body.language, "decimal": body.decimal, "currency": body.currency},
         )
         for i, name in enumerate(n.strip() for n in body.members):
             if name:
@@ -431,7 +438,7 @@ def _setup_household(conn: sqlite3.Connection, body: SetupIn) -> None:
 class SettingsIn(BaseModel):
     household: str | None = Field(None, max_length=100)
     language: str | None = Field(None, max_length=10)
-    locale: str | None = Field(None, max_length=20)
+    decimal: Literal[",", "."] | None = None
     currency: str | None = Field(None, max_length=3)
 
 
@@ -478,7 +485,7 @@ def _reorder(conn, table: str, ids: list[int]) -> None:
 @app.post("/api/members")
 def create_member(body: MemberIn, conn: sqlite3.Connection = Conn):
     if not body.name:
-        raise HTTPException(422, "name is required")
+        raise AppError(422, "INVALID", "name is required")
     count = conn.execute("SELECT COUNT(*) FROM members").fetchone()[0]
     color = body.color if body.color is not None else count % 8
     cur = conn.execute(
@@ -496,9 +503,9 @@ def update_member(id: int, body: MemberIn, conn: sqlite3.Connection = Conn):
 def delete_member(id: int, conn: sqlite3.Connection = Conn):
     member = one(conn, "SELECT * FROM members WHERE id = ?", (id,))
     if member["is_shared"]:
-        raise HTTPException(409, "the shared household budget cannot be deleted")
+        raise AppError(409, "SHARED_CANNOT_DELETE", "the shared household budget cannot be deleted")
     if conn.execute("SELECT 1 FROM items WHERE member_id = ?", (id,)).fetchone():
-        raise HTTPException(409, "has budget items; archive instead")
+        raise AppError(409, "MEMBER_HAS_ITEMS", "has budget items; archive instead")
     conn.execute("DELETE FROM members WHERE id = ?", (id,))
     return {"ok": True}
 
@@ -517,7 +524,7 @@ class CategoryIn(BaseModel):
 @app.post("/api/categories")
 def create_category(body: CategoryIn, conn: sqlite3.Connection = Conn):
     if not body.name or not body.kind:
-        raise HTTPException(422, "name and kind are required")
+        raise AppError(422, "INVALID", "name and kind are required")
     cur = conn.execute(
         "INSERT INTO categories (name, kind, sort) VALUES (?, ?, ?)",
         (body.name, body.kind, next_sort(conn, "categories")),
@@ -553,13 +560,13 @@ def _check_one_main(conn, kind: str | None, id: int | None = None) -> None:
     if kind == "main":
         other = conn.execute("SELECT id FROM accounts WHERE kind = 'main' AND id IS NOT ?", (id,)).fetchone()
         if other:
-            raise HTTPException(409, "there can only be one main account")
+            raise AppError(409, "ONE_MAIN_ACCOUNT", "there can only be one main account")
 
 
 @app.post("/api/accounts")
 def create_account(body: AccountIn, conn: sqlite3.Connection = Conn):
     if not body.name or not body.kind:
-        raise HTTPException(422, "name and kind are required")
+        raise AppError(422, "INVALID", "name and kind are required")
     _check_one_main(conn, body.kind)
     count = conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
     cur = conn.execute(
@@ -692,7 +699,7 @@ def update_item(id: int, body: ItemIn, year: int, conn: sqlite3.Connection = Con
         values["fixed"] = int(bool(values["fixed"]))
     for required in ("member_id", "kind", "name", "fixed", "note"):
         if required in values and values[required] is None:
-            raise HTTPException(422, f"{required} cannot be empty")
+            raise AppError(422, "INVALID", f"{required} cannot be empty")
     _patch(conn, "items", id, values)
     return _get_item(conn, id, year)
 
@@ -838,11 +845,11 @@ async def restore(request: Request, conn: sqlite3.Connection = Conn):
     try:
         data = json.loads(await request.body())
     except ValueError:
-        raise HTTPException(422, "not a JSON file")
+        raise AppError(422, "NOT_JSON", "not a JSON file")
     if not isinstance(data, dict) or data.get("format") != "jetbuddy":
-        raise HTTPException(422, "not a Jetbuddy backup")
+        raise AppError(422, "NOT_BACKUP", "not a Jetbuddy backup")
     if data.get("schema", 0) > len(db.MIGRATIONS):
-        raise HTTPException(422, "this backup is from a newer version of Jetbuddy")
+        raise AppError(422, "BACKUP_TOO_NEW", "this backup is from a newer version of Jetbuddy")
     try:
         with db.transaction(conn):
             for t in reversed(TABLES):
@@ -857,7 +864,7 @@ async def restore(request: Request, conn: sqlite3.Connection = Conn):
                             list(row.values()),
                         )
     except sqlite3.Error as e:
-        raise HTTPException(422, f"backup could not be restored: {e}")
+        raise AppError(422, "RESTORE_FAILED", f"backup could not be restored: {e}")
     return {"ok": True}
 
 
@@ -873,16 +880,15 @@ def export_xlsx(year: int, group: Literal["auto", "category", "member"] = "auto"
 
 
 @app.post("/api/import/preview")
-async def import_preview(file: UploadFile = File(...), decimal: Literal["auto", ",", "."] = Form("auto")):
-    """Read a spreadsheet. decimal: the file's decimal separator, if the
-    automatic guess gets text amounts wrong."""
+async def import_preview(file: UploadFile = File(...), decimal: Literal[",", "."] = Form(",")):
+    """Read a spreadsheet. decimal: the decimal separator of amounts written as text."""
     data = await file.read(MAX_IMPORT_BYTES + 1)
     if len(data) > MAX_IMPORT_BYTES:
-        raise HTTPException(413, "file is too large")
+        raise AppError(413, "FILE_TOO_LARGE", "file is too large")
     try:
-        return {"sheets": importer.read_file(file.filename or "", data, None if decimal == "auto" else decimal)}
+        return {"sheets": importer.read_file(file.filename or "", data, decimal)}
     except Exception as e:  # openpyxl raises many different errors for bad files
-        raise HTTPException(422, f"could not read the file: {e}")
+        raise AppError(422, "FILE_UNREADABLE", f"could not read the file: {e}")
 
 
 class ImportRow(BaseModel):
@@ -1014,8 +1020,8 @@ class BankConfigIn(BaseModel):
 def bank_config(body: BankConfigIn, request: Request):
     try:
         banking.save_config(budget_dir(request), body.app_id, body.private_key)
-    except ValueError as e:
-        raise HTTPException(422, str(e))
+    except banking.ConfigError as e:
+        raise AppError(422, e.code, str(e))
     ok, message = banking.test_connection(budget_dir(request))
     return {"ok": True, "test": {"ok": ok, "message": message}}
 
@@ -1069,7 +1075,7 @@ def bank_callback(request: Request, state: str = "", code: str = "", error: str 
         result = banking.sync(conn, budget_dir(request), _psu_headers(request))
         return RedirectResponse(f"/#/settings?bank=connected&new={result['new']}", status_code=303)
     except banking.BankError as e:
-        return RedirectResponse(f"/#/settings?bank=error&message={quote(str(e))}", status_code=303)
+        return RedirectResponse(f"/#/settings?bank=error&code={quote(e.code)}&message={quote(str(e))}", status_code=303)
 
 
 @app.post("/api/bank/sync")

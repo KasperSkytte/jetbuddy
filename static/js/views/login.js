@@ -1,7 +1,7 @@
 import { html, useState } from '../lib.js';
 import { api } from '../api.js';
 import { t } from '../i18n.js';
-import { Logo } from '../ui.js';
+import { Logo, errorText } from '../ui.js';
 
 export function Login({ canCreate, onDone, onCreate }) {
   const [login, setLogin] = useState('');
@@ -16,7 +16,7 @@ export function Login({ canCreate, onDone, onCreate }) {
       await api.post('/api/login', { login, password });
       onDone();
     } catch (err) {
-      setError(err.status === 401 ? t('login.wrong') : err.status === 429 ? t('login.tooMany') : err.message);
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }

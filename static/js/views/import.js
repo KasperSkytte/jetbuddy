@@ -4,6 +4,8 @@ import { useStore, bump, setStore, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
 import { money, amount, sum, monthNames } from '../fmt.js';
 import { Sheet, Segmented, Switch, Icon, toast, toastError } from '../ui.js';
+import { DecimalChoice } from './settings.js';
+import { defaultDecimal } from '../fmt.js';
 import { members } from '../model.js';
 
 const SHARED_WORDS = /shared|household|joint|common|f(æ|ae)lles|felles|gemensam|gemeinsam|family|familie/i;
@@ -29,7 +31,7 @@ export function ImportSheet({ onClose }) {
   const [year, setYear] = useState(currentYear);
   const [sheets, setSheets] = useState(null);
   const [file, setFile] = useState(null);
-  const [decimal, setDecimal] = useState('auto'); // the file's decimal separator, for amounts stored as text
+  const [decimal, setDecimal] = useState(household.settings.decimal || defaultDecimal(household.settings.language)); // for amounts written as text
   const [thousands, setThousands] = useState(false); // amounts written in thousands
   const [skipEmpty, setSkipEmpty] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -123,12 +125,8 @@ export function ImportSheet({ onClose }) {
       <div class="row wrap" style="gap:16px">
         <label class="field" style="width:140px"><span>${t('import.year')}</span>
           <input class="input" type="number" inputmode="numeric" value=${year} onInput=${(e) => setYear(Number(e.target.value))} /></label>
-        <label class="field" style="flex:1;min-width:180px"><span>${t('import.numberFormat')}</span>
-          <select class="input" value=${decimal} onChange=${(e) => changeDecimal(e.target.value)} disabled=${busy}>
-            <option value="auto">${t('import.formatAuto')}</option>
-            <option value=",">1.234,56</option>
-            <option value=".">1,234.56</option>
-          </select></label>
+        <div class="field" style="flex:1;min-width:200px"><span>${t('settings.decimal')}</span>
+          <${DecimalChoice} value=${decimal} onChange=${changeDecimal} /></div>
       </div>
       <${Switch} checked=${thousands} onChange=${setThousands} label=${t('import.thousands')} hint=${t('import.thousandsHint')} />
       <${Switch} checked=${skipEmpty} onChange=${setSkipEmpty} label=${t('import.skipEmpty')} />

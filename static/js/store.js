@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from './lib.js';
 import { api } from './api.js';
 import { setLanguage } from './i18n.js';
-import { setLocale } from './fmt.js';
+import { setFormat } from './fmt.js';
 
 const now = new Date();
 const saved = (key, fallback) => {
@@ -105,6 +105,6 @@ export function applyTheme(theme) {
 /** Apply the household's language and number format everywhere. */
 export function applySettings(settings = {}) {
   setLanguage(settings.language || navigator.language);
-  setLocale(settings.locale, settings.currency);
+  setFormat({ language: (settings.language || navigator.language).slice(0, 2), currency: settings.currency, decimal: settings.decimal });
   document.documentElement.lang = settings.language || 'en';
 }

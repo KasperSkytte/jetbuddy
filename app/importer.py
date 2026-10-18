@@ -66,50 +66,25 @@ def _month_of(header, position: int) -> int | None:
     return matches[0] if matches else None
 
 
-_NUMBER = re.compile(r"^[+-]?[\d.,\s ']+$")
-
-
-def parse_number(value, decimal: str | None = None) -> float | None:
-    """Numbers as people type them: 1234.5, 1.234,50, 1,234.50, -512,40, 1 234.
-
-    decimal says which separator is the decimal one (',' or '.'). Without it,
-    a lone separator followed by exactly three digits (31.250, 2,500) is taken
-    as a thousands separator: amounts of money rarely have three decimals.
-    """
+def parse_number(value, decimal: str = ",") -> float | None:
+    """An amount from a spreadsheet cell. Real numbers are taken as they are.
+    For text, decimal (',' or '.') is the decimal separator and everything
+    else except digits and a leading minus is ignored: thousands separators,
+    spaces, currency signs. (500) is negative, as in accounting."""
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
         return float(value)
     text = str(value).strip().replace("\u2212", "-").replace("\u2013", "-")
-    for symbol in ("kr.", "kr", "dkk", "sek", "nok", "eur", "usd", "€", "$", "£"):
-        text = re.sub(re.escape(symbol), "", text, flags=re.IGNORECASE)
-    text = text.strip()
-    if text.startswith("(") and text.endswith(")"):
-        text = "-" + text[1:-1]
-    if not text or not _NUMBER.match(text):
+    negative = text.startswith("-") or (text.startswith("(") and text.endswith(")"))
+    digits = re.sub(r"[^0-9" + re.escape(decimal) + r"]", "", text)
+    if not re.search(r"\d", digits) or digits.count(decimal) > 1 or re.search(r"[A-Za-z]{2,}", re.sub(r"(?i)kr\.?|dkk|sek|nok|eur|usd", "", text)):
         return None
-    text = re.sub(r"[\s\u00a0\u202f']", "", text)
-    if "," in text and "." in text:
-        # Whichever comes last is the decimal separator.
-        dec = decimal or ("," if text.rfind(",") > text.rfind(".") else ".")
-    elif "," in text or "." in text:
-        sep = "," if "," in text else "."
-        if decimal:
-            dec = decimal
-        else:
-            thousands = text.count(sep) > 1 or len(text) - text.rfind(sep) - 1 == 3
-            dec = ("." if sep == "," else ",") if thousands else sep
-    else:
-        dec = "."
-    group = "." if dec == "," else ","
-    text = text.replace(group, "").replace(dec, ".")
-    try:
-        return float(text)
-    except ValueError:
-        return None
+    number = float(digits.replace(decimal, "."))
+    return -number if negative else number
 
 
-def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None, decimal: str | None = None) -> dict | None:
+def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None, decimal: str = ",") -> dict | None:
     """Find the month header row and read the rows below it."""
     header_row = None
     month_cols: dict[int, int] = {}
@@ -177,7 +152,7 @@ def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None,
     }
 
 
-def read_xlsx(data: bytes, decimal: str | None = None) -> list[dict]:
+def read_xlsx(data: bytes, decimal: str = ",") -> list[dict]:
     values_wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True, read_only=True)
     formulas_wb = openpyxl.load_workbook(io.BytesIO(data), data_only=False, read_only=True)
     sheets = []
@@ -190,7 +165,7 @@ def read_xlsx(data: bytes, decimal: str | None = None) -> list[dict]:
     return sheets
 
 
-def read_csv(data: bytes, name: str = "CSV", decimal: str | None = None) -> list[dict]:
+def read_csv(data: bytes, name: str = "CSV", decimal: str = ",") -> list[dict]:
     text = data.decode("utf-8-sig", errors="replace")
     try:
         dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
@@ -201,7 +176,7 @@ def read_csv(data: bytes, name: str = "CSV", decimal: str | None = None) -> list
     return [parsed] if parsed else []
 
 
-def read_file(filename: str, data: bytes, decimal: str | None = None) -> list[dict]:
+def read_file(filename: str, data: bytes, decimal: str = ",") -> list[dict]:
     if filename.lower().endswith((".xlsx", ".xlsm")):
         return read_xlsx(data, decimal)
     return read_csv(data, filename.rsplit(".", 1)[0], decimal)

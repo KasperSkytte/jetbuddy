@@ -1,9 +1,10 @@
 // Thin JSON client for the backend. Errors carry the server's message.
 
 export class ApiError extends Error {
-  constructor(status, message) {
+  constructor(status, message, code = null) {
     super(message);
     this.status = status;
+    this.code = code; // e.g. USERNAME_TAKEN; the app translates known codes
   }
 }
 
@@ -34,11 +35,14 @@ export async function request(method, url, body, { raw = false } = {}) {
   if (res.status === 401 && !url.endsWith('/login')) listeners.forEach((fn) => fn());
   if (!res.ok) {
     let message = res.statusText;
+    let code = null;
     try {
-      const data = await res.json();
-      message = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+      const { detail } = await res.json();
+      if (typeof detail === 'string') message = detail;
+      else if (Array.isArray(detail)) code = 'INVALID'; // a field that didn't pass validation
+      else if (detail) ({ message, code } = detail);
     } catch {}
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, code);
   }
   return raw ? res : res.json();
 }

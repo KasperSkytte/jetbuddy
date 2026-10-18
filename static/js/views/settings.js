@@ -2,23 +2,20 @@ import { html, useState } from '../lib.js';
 import { api, request } from '../api.js';
 import { useStore, setStore, reloadHousehold, applyTheme, bump, useData, applySettings } from '../store.js';
 import { t, LANGUAGES } from '../i18n.js';
-import { money, monthNames } from '../fmt.js';
-import { Sheet, Swatches, Switch, Segmented, Dot, Icon, seriesColor, toast, toastError } from '../ui.js';
+import { money, monthNames, defaultDecimal } from '../fmt.js';
+import { Sheet, Swatches, Switch, Segmented, Dot, Icon, seriesColor, toast, toastError, errorText } from '../ui.js';
 import { categories } from '../model.js';
 import { ImportSheet } from './import.js';
 import { BankSettings } from './bank.js';
 import { ExportSheet } from './export.js';
 import { InstallGuide } from './install.js';
 
-export const LOCALES = ['en-US', 'en-GB', 'da-DK', 'de-DE', 'de-CH', 'sv-SE', 'nb-NO', 'fi-FI', 'nl-NL', 'fr-FR', 'es-ES', 'it-IT', 'pl-PL'];
 export const CURRENCIES = ['DKK', 'EUR', 'USD', 'GBP', 'SEK', 'NOK', 'ISK', 'CHF', 'PLN', 'CZK', 'CAD', 'AUD', 'NZD', 'JPY', 'INR', 'BRL', 'ZAR'];
 
-export function localeExample(loc) {
-  try {
-    return new Intl.NumberFormat(loc, { minimumFractionDigits: 2 }).format(1234.56);
-  } catch {
-    return loc;
-  }
+/** Comma or dot as the decimal separator, with an example of each. */
+export function DecimalChoice({ value, onChange }) {
+  return html`<${Segmented} value=${value} onChange=${onChange} label=${t('settings.decimal')}
+    options=${[{ value: ',', label: `${t('settings.comma')}  1.234,56` }, { value: '.', label: `${t('settings.dot')}  1,234.56` }]} />`;
 }
 
 async function run(fn, done) {
@@ -56,7 +53,7 @@ function LoginDetailsSheet({ login, onClose }) {
       setStore({ session: await api.get('/api/session') });
       onClose();
     } catch (e) {
-      toast(e.status === 401 ? t('settings.wrongPassword') : e.message, { error: true });
+      toast(e.status === 401 ? t('settings.wrongPassword') : errorText(e), { error: true });
     } finally {
       setBusy(false);
     }
@@ -88,7 +85,7 @@ function DeleteBudgetSheet({ name, onClose }) {
       await api.post('/api/budget/delete', { password });
       location.reload();
     } catch (e) {
-      toast(e.status === 401 ? t('settings.wrongPassword') : e.message, { error: true });
+      toast(e.status === 401 ? t('settings.wrongPassword') : errorText(e), { error: true });
     }
   };
   return html`<${Sheet} title=${t('settings.deleteBudget')} onClose=${onClose}
@@ -125,7 +122,12 @@ function LoginSection() {
 function HouseholdForm() {
   const { household, theme } = useStore();
   const s = household.settings;
-  const [form, setForm] = useState({ household: s.household || '', language: s.language || 'en', locale: s.locale || 'en-US', currency: s.currency || 'USD' });
+  const [form, setForm] = useState({
+    household: s.household || '',
+    language: s.language || 'en',
+    decimal: s.decimal || defaultDecimal(s.language || 'en'),
+    currency: s.currency || 'USD',
+  });
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
   const dirty = Object.keys(form).some((k) => form[k] !== (s[k] || ''));
   const save = () => run(async () => {
@@ -142,9 +144,7 @@ function HouseholdForm() {
       <label class="field"><span>${t('settings.currency')}</span>
         <select class="input" value=${form.currency} onChange=${(e) => set({ currency: e.target.value })}>
           ${(CURRENCIES.includes(form.currency) ? CURRENCIES : [form.currency, ...CURRENCIES]).map((c) => html`<option key=${c} value=${c}>${c}</option>`)}</select></label>
-      <label class="field"><span>${t('settings.numberFormat')}</span>
-        <select class="input" value=${form.locale} onChange=${(e) => set({ locale: e.target.value })}>
-          ${(LOCALES.includes(form.locale) ? LOCALES : [form.locale, ...LOCALES]).map((l) => html`<option key=${l} value=${l}>${localeExample(l)} (${l})</option>`)}</select></label>
+      <div class="field"><span>${t('settings.decimal')}</span><${DecimalChoice} value=${form.decimal} onChange=${(decimal) => set({ decimal })} /></div>
       <div class="field"><span>${t('settings.theme')}</span>
         <${Segmented} value=${theme} onChange=${(v) => { setStore({ theme: v }); applyTheme(v); }}
           options=${[{ value: 'auto', label: t('settings.themeAuto') }, { value: 'light', label: t('settings.themeLight') }, { value: 'dark', label: t('settings.themeDark') }]} /></div>

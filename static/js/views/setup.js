@@ -2,13 +2,17 @@ import { html, useState } from '../lib.js';
 import { api } from '../api.js';
 import { setStore } from '../store.js';
 import { t, LANGUAGES, setLanguage, currentLanguage } from '../i18n.js';
-import { setLocale } from '../fmt.js';
+import { setFormat, defaultDecimal } from '../fmt.js';
 import { Logo, Icon, Switch, toastError } from '../ui.js';
-import { LOCALES, CURRENCIES, localeExample } from './settings.js';
+import { CURRENCIES, DecimalChoice } from './settings.js';
 
-function guessLocale() {
-  const nav = navigator.language || 'en-US';
-  return LOCALES.find((l) => l === nav) || LOCALES.find((l) => l.startsWith(nav.slice(0, 2))) || 'en-US';
+/** The decimal separator people here are used to, from the browser's language. */
+function guessDecimal() {
+  try {
+    return new Intl.NumberFormat(navigator.language).formatToParts(1.5).find((p) => p.type === 'decimal')?.value === '.' ? '.' : ',';
+  } catch {
+    return ',';
+  }
 }
 
 const CURRENCY_BY_REGION = { DK: 'DKK', SE: 'SEK', NO: 'NOK', IS: 'ISK', GB: 'GBP', US: 'USD', CH: 'CHF', PL: 'PLN', CZ: 'CZK', CA: 'CAD', AU: 'AUD', NZ: 'NZD', JP: 'JPY', IN: 'INR', BR: 'BRL', ZA: 'ZAR' };
@@ -21,12 +25,12 @@ function slug(text) {
 
 export function Setup({ onDone, onBack }) {
   const [, rerender] = useState(0);
-  const locale0 = guessLocale();
+  const region = (navigator.language || '').split('-')[1] || '';
   const [form, setForm] = useState({
     household: '',
     language: currentLanguage(),
-    locale: locale0,
-    currency: CURRENCY_BY_REGION[locale0.split('-')[1]] || 'EUR',
+    decimal: guessDecimal(),
+    currency: CURRENCY_BY_REGION[region.toUpperCase()] || (currentLanguage() === 'da' ? 'DKK' : 'EUR'),
     members: ['', ''],
     shared_name: t('setup.sharedDefault'),
     starter_categories: true,
@@ -53,7 +57,7 @@ export function Setup({ onDone, onBack }) {
     setBusy(true);
     try {
       const household = await api.post('/api/budgets', { ...form, household: form.household.trim(), members: names, login: form.login.trim() });
-      setLocale(form.locale, form.currency);
+      setFormat({ language: form.language, currency: form.currency, decimal: form.decimal });
       setStore({ household });
       onDone(household);
     } catch (err) {
@@ -88,9 +92,7 @@ export function Setup({ onDone, onBack }) {
       <label class="field"><span>${t('settings.currency')}</span>
         <select class="input" value=${form.currency} onChange=${(e) => set({ currency: e.target.value })}>
           ${CURRENCIES.map((c) => html`<option key=${c} value=${c}>${c}</option>`)}</select></label>
-      <label class="field"><span>${t('settings.numberFormat')}</span>
-        <select class="input" value=${form.locale} onChange=${(e) => set({ locale: e.target.value })}>
-          ${LOCALES.map((l) => html`<option key=${l} value=${l}>${localeExample(l)}</option>`)}</select></label>
+      <div class="field"><span>${t('settings.decimal')}</span><${DecimalChoice} value=${form.decimal} onChange=${(decimal) => set({ decimal })} /></div>
     </div>
     <div class="field"><span>${t('setup.login')}</span>
       <span class="hint">${t('setup.loginHint')}</span>

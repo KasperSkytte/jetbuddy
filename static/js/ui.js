@@ -1,7 +1,7 @@
 // Small shared components: icons, modal sheet, toasts, amount input, chips.
 import { html, useState, useEffect, useRef, render } from './lib.js';
 import { amount, parseAmount } from './fmt.js';
-import { t } from './i18n.js';
+import { t, has } from './i18n.js';
 
 // ------------------------------------------------------------------ icons
 // 24x24 stroke icons, drawn for this app.
@@ -90,9 +90,15 @@ export function toast(text, { error = false } = {}) {
     renderToasts();
   }, error ? 5000 : 2600);
 }
+/** An error in the app's language when it has a translation, else as the server said it. */
+export function errorText(e) {
+  if (e?.message === 'offline') return t('error.offline');
+  if (e?.code && has('errors.' + e.code)) return t('errors.' + e.code);
+  return e?.message || String(e);
+}
+
 export function toastError(e) {
-  const msg = e?.message === 'offline' ? t('error.offline') : e?.message || String(e);
-  toast(msg, { error: true });
+  toast(errorText(e), { error: true });
 }
 
 // ------------------------------------------------------------------ modal sheet
