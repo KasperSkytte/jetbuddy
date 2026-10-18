@@ -1,6 +1,6 @@
 import pytest
 
-from app.importer import parse_number
+from app.importer import other_decimal, parse_number
 
 
 @pytest.mark.parametrize(
@@ -23,3 +23,12 @@ from app.importer import parse_number
 )
 def test_parse_number(text, decimal, value):
     assert parse_number(text, decimal) == value
+
+
+@pytest.mark.parametrize(
+    "text, decimal, suspect",
+    [("-149,95", ".", True), ("149,95", ",", False), ("1,234", ".", False), ("31.250", ",", False),
+     ("685.9", ",", True), ("1.234,56", ",", False), (149.95, ".", False), ("12,5", "either", False)],
+)
+def test_other_decimal(text, decimal, suspect):
+    assert other_decimal(text, decimal) is suspect

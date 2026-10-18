@@ -9,6 +9,7 @@ import { ImportSheet } from './import.js';
 import { BankSettings } from './bank.js';
 import { ExportSheet } from './export.js';
 import { InstallGuide } from './install.js';
+import { ChecksSheet } from './checks.js';
 
 export const CURRENCIES = ['DKK', 'EUR', 'USD', 'GBP', 'SEK', 'NOK', 'ISK', 'CHF', 'PLN', 'CZK', 'CAD', 'AUD', 'NZD', 'JPY', 'INR', 'BRL', 'ZAR'];
 
@@ -298,6 +299,7 @@ function Accounts() {
 function Data() {
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [checking, setChecking] = useState(false);
   const restore = (e) => {
     const file = e.target.files[0];
     e.target.value = '';
@@ -309,6 +311,8 @@ function Data() {
   };
   return html`<${Section} title=${t('settings.data')} icon="download">
     <div class="list">
+      <button class="add-row" onClick=${() => setChecking(true)}><${Icon} name="check" size=${18} />
+        <span class="spacer">${t('checks.title')}<div class="small muted" style="font-weight:400">${t('checks.short')}</div></span></button>
       <button class="add-row" onClick=${() => setImporting(true)}><${Icon} name="upload" size=${18} />
         <span class="spacer">${t('settings.importSheet')}<div class="small muted" style="font-weight:400">${t('settings.importSheetHint')}</div></span></button>
       <button class="add-row" onClick=${() => setExporting(true)}><${Icon} name="table" size=${18} />
@@ -321,6 +325,7 @@ function Data() {
     </div>
     ${importing && html`<${ImportSheet} onClose=${() => setImporting(false)} />`}
     ${exporting && html`<${ExportSheet} onClose=${() => setExporting(false)} />`}
+    ${checking && html`<${ChecksSheet} onClose=${() => setChecking(false)} />`}
   </${Section}>`;
 }
 

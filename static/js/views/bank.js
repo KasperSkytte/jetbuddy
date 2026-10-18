@@ -319,7 +319,7 @@ export function BankSettings() {
               ${session.last_error && html`<div class="small bad">${session.last_error}</div>`}</div>
           </div>
           <div class="row wrap" style="padding:0 16px 10px">
-            ${(expired || left < 14) && html`<button class="btn small primary" onClick=${() => setPicker({ preset: { name: session.aspsp_name, country: session.aspsp_country } })}>${t('bank.renew')}</button>`}
+            <button class=${'btn small' + (expired || left < 14 ? ' primary' : '')} onClick=${() => setPicker({ preset: { name: session.aspsp_name, country: session.aspsp_country } })}>${t('bank.renew')}</button>
             <button class="btn small ghost danger" onClick=${() => disconnect(session)}>${t('bank.disconnect')}</button>
           </div>
           ${accounts.map((a) => html`<div key=${a.id} class="bank-account">
@@ -334,7 +334,11 @@ export function BankSettings() {
           </div>`)}
         </div>`;
       })}
-      ${s.sessions.length > 0 && html`<button class="add-row" onClick=${() => setPicker({})}><${Icon} name="plus" size=${18} />${t('bank.connectAnother')}</button>`}
+      ${s.sessions.length > 0 && html`<button class="add-row" onClick=${() => setPicker({})}><${Icon} name="plus" size=${18} />${t('bank.connectAnother')}</button>
+        <details class="more small" style="padding:0 16px 8px"><summary>${t('bank.missingTitle')}</summary>
+          <ul style="margin:4px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px" class="secondary">
+            <li>${t('bank.missing1')}</li><li>${t('bank.missing2')}</li><li>${t('bank.missing3')}</li>
+          </ul></details>`}
       ${s.rules.length > 0 && html`<div>
         <div class="group-label">${t('bank.rules')}</div>
         <div class="list">${s.rules.map((r) => html`<div class="list-row" key=${r.id} style="min-height:48px">

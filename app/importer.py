@@ -93,6 +93,19 @@ def parse_number(value, decimal: str = ",") -> float | None:
     return -number if negative else number
 
 
+def other_decimal(text, decimal: str) -> bool:
+    """True when text uses the other separator in a way only a decimal sign
+    can be used: a thousands separator is always followed by exactly three
+    digits, so "149,95" with dot as the decimal separator gives it away."""
+    if decimal not in (",", ".") or not isinstance(text, str):
+        return False
+    other = "." if decimal == "," else ","
+    s = re.sub(r"[^0-9,.]", "", text)
+    if other not in s:
+        return False
+    return any(len(re.match(r"\d*", g).group()) != 3 for g in s.split(other)[1:])
+
+
 def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None, decimal: str = ",") -> dict | None:
     """Find the month header row and read the rows below it."""
     header_row = None
@@ -113,6 +126,7 @@ def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None,
 
     first_month_col = min(month_cols)
     rows = []
+    suspects: list[str] = []  # text amounts that look like they use the other decimal sign
     formula_cells = 0
     value_cells = 0
     for r in range(header_row + 1, len(grid)):
@@ -126,6 +140,8 @@ def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None,
         values: list[float | None] = [None] * 12
         for c, month in month_cols.items():
             v = parse_number(row[c], decimal) if c < len(row) else None
+            if c < len(row) and other_decimal(row[c], decimal):
+                suspects.append(str(row[c]).strip())
             is_formula = bool(formulas) and c < len(formulas[r]) and str(formulas[r][c] or "").startswith("=")
             if v is not None:
                 values[month - 1] = v
@@ -158,6 +174,7 @@ def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None,
         "kind": kind,
         # Mostly formulas means a summary sheet (totals of the other sheets).
         "looks_like_summary": value_cells > 0 and formula_cells / value_cells > 0.5,
+        "other_decimal": {"count": len(suspects), "example": suspects[0]} if suspects else None,
     }
 
 

@@ -418,7 +418,7 @@ def link_accounts(conn: sqlite3.Connection) -> None:
     accounts follow the balance only; their transactions are transfers in."""
     accounts = [dict(r) for r in conn.execute("SELECT * FROM accounts WHERE archived = 0 ORDER BY sort, id")]
     taken = {r[0] for r in conn.execute("SELECT account_id FROM bank_accounts WHERE account_id IS NOT NULL")}
-    for ba in conn.execute("SELECT * FROM bank_accounts WHERE account_id IS NULL ORDER BY id").fetchall():
+    for ba in conn.execute("SELECT * FROM bank_accounts WHERE account_id IS NULL AND link_chosen = 0 ORDER BY id").fetchall():
         name = (ba["name"] or "").strip()
         savings = bool(_SAVINGS.search(name))
         free = [a for a in accounts if a["id"] not in taken]
@@ -570,6 +570,9 @@ def sync(conn: sqlite3.Connection, bdir: Path, psu: dict | None = None) -> dict:
 
 def _sync(conn: sqlite3.Connection, bdir: Path, psu: dict | None) -> dict:
     eb = client(bdir)
+    # Accounts connected before automatic linking existed, or never linked.
+    with db.transaction(conn):
+        link_accounts(conn)
     new_ids: list[int] = []
     errors: list[str] = []
     now = datetime.now(timezone.utc)

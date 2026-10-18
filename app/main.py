@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from urllib.parse import quote
 
-from . import __version__, auth, banking, calc, db, importer
+from . import __version__, auth, banking, calc, checks, db, importer
 from . import export_xlsx as export_workbook
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -940,7 +940,64 @@ def import_commit(body: ImportIn, conn: sqlite3.Connection = Conn):
                     created += 1
                 amounts = [None if v is None else v * body.scale for v in row.amounts]
                 set_amounts(conn, item_id, body.year, cents_list(amounts))
-    return {"created": created, "updated": updated}
+    suspicious = [f for f in checks.find(conn, _dismissed(conn))["findings"] if f["year"] == body.year]
+    return {"created": created, "updated": updated, "suspicious": len(suspicious)}
+
+
+# --------------------------------------------------------------------------
+# Checking the numbers
+
+
+def _dismissed(conn) -> set[str]:
+    return set(get_settings(conn).get("checks_dismissed", []))
+
+
+@app.get("/api/checks")
+def run_checks(conn: sqlite3.Connection = Conn):
+    """Amounts that look 10, 100 or 1000 times off."""
+    return checks.find(conn, _dismissed(conn))
+
+
+class CheckPlace(BaseModel):
+    year: int = Field(ge=1900, le=2200)
+    months: list[int] = Field(min_length=1, max_length=12)
+
+
+class CheckFixIn(BaseModel):
+    item_id: int | None = None
+    account_id: int | None = None
+    where: list[CheckPlace] = Field(min_length=1)
+    multiply: float | None = Field(None, gt=0, le=10000)
+    use_bank: bool = False
+
+
+@app.post("/api/checks/fix")
+def fix_check(body: CheckFixIn, conn: sqlite3.Connection = Conn):
+    if body.item_id is None and body.account_id is None:
+        raise AppError(422, "INVALID", "item_id or account_id is required")
+    with db.transaction(conn):
+        checks.fix(conn, item_id=body.item_id, account_id=body.account_id, where=[w.model_dump() for w in body.where],
+                   multiply=body.multiply, use_bank=body.use_bank)
+    return checks.find(conn, _dismissed(conn))
+
+
+class CheckDismissIn(BaseModel):
+    id: str = Field(max_length=200)
+
+
+@app.post("/api/checks/dismiss")
+def dismiss_check(body: CheckDismissIn, conn: sqlite3.Connection = Conn):
+    """'This amount is right': don't report it again."""
+    with db.transaction(conn):
+        set_settings(conn, {"checks_dismissed": sorted(_dismissed(conn) | {body.id})})
+    return checks.find(conn, _dismissed(conn))
+
+
+@app.post("/api/checks/reset")
+def reset_checks(conn: sqlite3.Connection = Conn):
+    with db.transaction(conn):
+        set_settings(conn, {"checks_dismissed": []})
+    return checks.find(conn, set())
 
 
 # --------------------------------------------------------------------------
@@ -1102,7 +1159,7 @@ def bank_account_update(id: int, body: BankAccountIn, conn: sqlite3.Connection =
         if "account_id" in body.model_fields_set:
             if body.account_id is not None:
                 one(conn, "SELECT id FROM accounts WHERE id = ?", (body.account_id,))
-            conn.execute("UPDATE bank_accounts SET account_id = ? WHERE id = ?", (body.account_id, id))
+            conn.execute("UPDATE bank_accounts SET account_id = ?, link_chosen = 1 WHERE id = ?", (body.account_id, id))
             # Balances the bank gave the old account no longer apply.
             if current["account_id"] is not None and current["account_id"] != body.account_id:
                 conn.execute("DELETE FROM account_balances WHERE account_id = ? AND source = 'bank'", (current["account_id"],))

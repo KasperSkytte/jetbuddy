@@ -310,3 +310,21 @@ def test_bank_accounts_are_linked_automatically(client, household, bank):
     assert linked["Opsparing"] == ("Savings", False)
     assert linked["Fælleskonto"] == ("Fælleskonto", True)
     assert [a["name"] for a in state["accounts"]] == ["Budget account", "Savings", "Fælleskonto"]
+
+
+def test_unlinked_accounts_are_linked_on_sync_unless_chosen(client, household, bank):
+    connect(client)
+    accounts = client.get("/api/bank/status").json()["accounts"]
+    budget, savings = accounts[0], accounts[1]
+    # Someone picks "nothing" for the savings account: that sticks.
+    client.patch(f"/api/bank/accounts/{savings['id']}", json={"account_id": None})
+    # An account left unlinked from an older version gets linked on the next sync.
+    from app import db
+
+    conn = db.open_budget(1)
+    conn.execute("UPDATE bank_accounts SET account_id = NULL WHERE id = ?", (budget["id"],))
+    conn.close()
+    client.post("/api/bank/sync")
+    after = {a["id"]: a["account_id"] for a in client.get("/api/bank/status").json()["accounts"]}
+    assert after[budget["id"]] is not None
+    assert after[savings["id"]] is None

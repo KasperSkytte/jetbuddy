@@ -507,3 +507,5 @@ details.more summary { cursor: pointer; color: var(--accent-ink); font-weight: 5
 
 .install-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; font-size: 14.5px; line-height: 1.55; }
 .glyph { display: inline-grid; place-items: center; width: 26px; height: 26px; margin: -4px 1px; border-radius: 7px; background: var(--surface-2); border: 1px solid var(--border); color: var(--accent-ink); vertical-align: middle; }
+.finding { padding: 12px 14px; }
+.finding + .finding { margin-top: 0; }

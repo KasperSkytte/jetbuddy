@@ -100,6 +100,7 @@ export function ImportSheet({ onClose }) {
         })),
       });
       toast(t('import.done', { created: r.created, updated: r.updated, year }));
+      if (r.suspicious) toast(t('import.suspicious', { n: r.suspicious }), { error: true });
       await reloadHousehold();
       setStore({ year });
       bump();
@@ -130,6 +131,16 @@ export function ImportSheet({ onClose }) {
       </div>
       <${Switch} checked=${thousands} onChange=${setThousands} label=${t('import.thousands')} hint=${t('import.thousandsHint')} />
       <${Switch} checked=${skipEmpty} onChange=${setSkipEmpty} label=${t('import.skipEmpty')} />
+      ${(() => {
+        // Text amounts that only make sense with the other decimal sign, like 149,95 with dot chosen.
+        const hit = sheets.find((s) => s.include && s.other_decimal);
+        if (!hit || decimal === 'either') return null;
+        const other = decimal === ',' ? '.' : ',';
+        return html`<div class="notice bad-notice">
+          <strong>${t('import.otherDecimal', { example: hit.other_decimal.example, n: sheets.reduce((n, s) => n + (s.other_decimal?.count || 0), 0) })}</strong>
+          <div style="margin-top:8px"><button class="btn small primary" onClick=${() => changeDecimal(other)}>
+            ${t(other === ',' ? 'import.useComma' : 'import.useDot')}</button></div></div>`;
+      })()}
       <p class="small secondary" style="margin:0">${t('import.mapHint')} ${t('import.checkHint')}</p>
       ${sheets.map((s, i) => {
         const rows = s.rows.filter((row) => !skipEmpty || row.amounts.some((v) => v));

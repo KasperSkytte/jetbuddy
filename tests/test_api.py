@@ -144,7 +144,7 @@ def test_import_spreadsheet_merges_items_across_years(client, household):
             json={"year": year, "sheets": [{"member_id": alex_id, "kind": "expense", "rows": alex["rows"]}]},
         )
         assert r.status_code == 200, r.text
-    assert r.json() == {"created": 0, "updated": 2}
+    assert r.json() == {"created": 0, "updated": 2, "suspicious": 0}
     items = client.get("/api/years/2027/items").json()
     assert len(items) == 2
     assert items[0]["prev"] == [149.95] * 12
@@ -256,3 +256,59 @@ def test_import_in_thousands(client, household):
     })
     assert r.status_code == 200, r.text
     assert client.get("/api/years/2027/items").json()[0]["amounts"][0] == 27800
+
+
+def test_checks_find_and_fix_amounts_off_by_powers_of_ten(client, household):
+    cats = {c["name"]: c["id"] for c in household["categories"]}
+    # Salary with one month imported 100 times too big.
+    salary = add(client, household, "Alex", "income", "Salary", [31250] * 5 + [3125000] + [31250] * 6)
+    # Phone: 2026 right, 2027 1000 times too small (149,95 read as 0,14995). Same
+    # number of months each way, so either year could be the wrong one.
+    phone = add(client, household, "Alex", "expense", "Phone", [149.95] * 12, year=2026)
+    client.put(f"/api/items/{phone['id']}/amounts", json={"year": 2027, "amounts": [0.18] * 12})
+    # Rent wrong in every month: only the comparison with income can see it.
+    add(client, household, "Shared", "expense", "Rent", [1200000] * 12, category_id=cats["Housing"])
+    found = client.get("/api/checks").json()["findings"]
+    salary_f = next(f for f in found if f["name"] == "Salary")
+    assert salary_f["type"] == "item" and salary_f["where"] == [{"year": 2027, "months": [6]}] and salary_f["factor"] == 100
+    assert salary_f["options"] == [{"action": "scale", "multiply": 0.01, "where": [{"year": 2027, "months": [6]}]}]
+    phone_f = next(f for f in found if f["name"] == "Phone")
+    assert phone_f["type"] == "split" and phone_f["factor"] == 1000
+    assert [(o["multiply"], o["where"][0]["year"]) for o in phone_f["options"]] == [(0.001, 2026), (1000, 2027)]
+    assert sum(1 for f in found if f["name"] == "Rent" and f["type"] == "large") == 12
+
+    # Fix the salary month; fix the phone's 2027; say the rent in January is right.
+    opt = salary_f["options"][0]
+    r = client.post("/api/checks/fix", json={"item_id": salary["id"], "where": opt["where"], "multiply": opt["multiply"]})
+    assert r.status_code == 200, r.text
+    opt = phone_f["options"][1]
+    client.post("/api/checks/fix", json={"item_id": phone["id"], "where": opt["where"], "multiply": opt["multiply"]})
+    items = {i["name"]: i for i in client.get("/api/years/2027/items").json()}
+    assert items["Salary"]["amounts"][5] == 31250 and items["Phone"]["amounts"][0] == 180
+    rent_jan = next(f for f in client.get("/api/checks").json()["findings"] if f["name"] == "Rent")
+    client.post("/api/checks/dismiss", json={"id": rent_jan["id"]})
+    left = client.get("/api/checks").json()["findings"]
+    assert rent_jan["id"] not in {f["id"] for f in left}
+    assert not any(f["name"] in ("Salary", "Phone") for f in left)
+    client.post("/api/checks/reset")
+    assert any(f["id"] == rent_jan["id"] for f in client.get("/api/checks").json()["findings"])
+
+
+def test_checks_typed_in_balance(client, household):
+    main = account(household, "main")
+    add(client, household, "Alex", "income", "Salary", [30000] * 12)
+    add(client, household, "Shared", "expense", "Rent", [20000] * 12)
+    client.put(f"/api/accounts/{main['id']}/balance", json={"year": 2027, "month": 1, "amount": 50000})
+    client.put(f"/api/accounts/{main['id']}/balance", json={"year": 2027, "month": 3, "amount": 7000000})  # meant 70.000
+    f = next(f for f in client.get("/api/checks").json()["findings"] if f["type"] == "balance")
+    assert f["where"] == [{"year": 2027, "months": [3]}] and f["factor"] == 100
+    opt = f["options"][0]
+    client.post("/api/checks/fix", json={"account_id": main["id"], "where": opt["where"], "multiply": opt["multiply"]})
+    assert client.get(f"/api/accounts/{main['id']}/balances").json()[1]["amount"] == 70000
+
+
+def test_import_reports_suspicious_amounts(client, household):
+    alex = member(household, "Alex")["id"]
+    r = client.post("/api/import/commit", json={"year": 2027, "sheets": [{"member_id": alex, "kind": "income", "rows": [
+        {"name": "Salary", "amounts": [31250] * 11 + [3125000]}]}]})
+    assert r.json()["suspicious"] == 1

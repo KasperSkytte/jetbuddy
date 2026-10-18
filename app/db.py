@@ -158,6 +158,11 @@ MIGRATIONS = [
         ignore  INTEGER NOT NULL DEFAULT 0
     );
     """,
+    # Set once someone picks a bank account's link by hand ("Nothing"
+    # included), so automatic linking leaves it alone from then on.
+    """
+    ALTER TABLE bank_accounts ADD COLUMN link_chosen INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 
