@@ -105,7 +105,8 @@ function useActive(count, xToIndex) {
 
 /**
  * Grouped columns. series: [{ name, color, values[] }], labels: x labels,
- * titles: longer labels for the tooltip.
+ * titles: longer labels for the tooltip. A series can colour each bar by its
+ * value with colorOf(v), e.g. above or below zero.
  */
 export function ColumnChart({ labels, titles, series, height = 220, format = money, tickFormat = moneyShort, label, extraRow }) {
   const [ref, width] = useWidth();
@@ -141,14 +142,14 @@ export function ColumnChart({ labels, titles, series, height = 220, format = mon
           ${series.map((s, j) => {
             const v = s.values[i];
             if (!v) return null;
-            return html`<path key=${j} d=${columnPath(gx + j * (barW + groupGap), barW, y(0), y(v))} fill=${s.color} />`;
+            return html`<path key=${j} d=${columnPath(gx + j * (barW + groupGap), barW, y(0), y(v))} fill=${s.colorOf ? s.colorOf(v) : s.color} />`;
           })}
           <text class="tick" x=${left + i * band + band / 2} y=${height - 6} text-anchor="middle" style="text-transform:capitalize">${short ? l.slice(0, 1) : l}</text>
         </g>`;
       })}
     </svg>`}
     ${active != null && html`<${Tooltip} title=${(titles || labels)[active]} x=${left + active * band + band / 2} width=${width} format=${format}
-        rows=${series.map((s) => ({ name: s.name, color: s.color, value: s.values[active] }))}
+        rows=${series.map((s) => ({ name: s.name, color: s.colorOf ? s.colorOf(s.values[active] || 0) : s.color, value: s.values[active] }))}
         extra=${extraRow?.(active)} />`}
   </div>`;
 }

@@ -459,6 +459,10 @@ const en = {
   'import.otherDecimal': '{n} amounts, like “{example}”, look like they use the other decimal separator. Importing like this would make them 100 or 1000 times off.',
   'import.useComma': 'Use comma as the decimal separator',
   'import.useDot': 'Use dot as the decimal separator',
+  'overview.monthlyBalance': 'Monthly balance',
+  'overview.monthlyBalanceHint': 'Income minus expenses each month: above zero when more came in than went out.',
+  'overview.moreIn': 'More in',
+  'overview.moreOut': 'More out',
 };
 
 const da = {
@@ -917,6 +921,10 @@ const da = {
   'import.otherDecimal': '{n} beløb, fx “{example}”, ser ud til at bruge det andet decimaltegn. Importeres de sådan, bliver de 100 eller 1000 gange forkerte.',
   'import.useComma': 'Brug komma som decimaltegn',
   'import.useDot': 'Brug punktum som decimaltegn',
+  'overview.monthlyBalance': 'Månedlig balance',
+  'overview.monthlyBalanceHint': 'Indtægter minus udgifter hver måned: over nul, når der kom mere ind, end der gik ud.',
+  'overview.moreIn': 'Mere ind',
+  'overview.moreOut': 'Mere ud',
 };
 
 const DICTS = { en, da };

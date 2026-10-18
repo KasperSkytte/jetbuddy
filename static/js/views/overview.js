@@ -118,6 +118,14 @@ export function Overview() {
             <span class="t-key"></span><span class=${'t-value ' + netClass(s.net[i])}>${signedMoney(s.net[i])}</span><span class="t-name">${t('common.balance')}</span></div>`} />
       </${ChartCard}>
 
+      <${ChartCard} title=${t('overview.monthlyBalance')}
+        table=${html`<${ChartTable} labels=${long} series=${[{ name: t('common.balance'), values: s.net }]} format=${signedMoney} />`}>
+        <p class="small secondary" style="margin:-6px 0 8px">${t('overview.monthlyBalanceHint')}</p>
+        <${Legend} series=${[{ name: t('overview.moreIn'), color: INCOME_COLOR }, { name: t('overview.moreOut'), color: EXPENSE_COLOR }]} />
+        <${ColumnChart} labels=${short} titles=${long} height=${190} format=${signedMoney} label=${t('overview.monthlyBalance')}
+          series=${[{ name: t('common.balance'), color: INCOME_COLOR, colorOf: (v) => (v < 0 ? EXPENSE_COLOR : INCOME_COLOR), values: s.net }]} />
+      </${ChartCard}>
+
       <${ChartCard} title=${t('overview.accumulated')}
         table=${html`<${ChartTable} labels=${long} total=${false} series=${[{ name: t('common.balance'), values: s.net }, { name: t('overview.accumulated'), values: s.cumulative }]} />`}>
         <p class="small secondary" style="margin:-6px 0 8px">${t('overview.accumulatedHint')}</p>
