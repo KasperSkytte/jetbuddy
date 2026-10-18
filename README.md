@@ -14,7 +14,7 @@ stays on your own server.
   <img src="docs/phone-trends-dark.png" width="200" alt="Trends across years, dark mode">
 </p>
 
-## What you get
+## Features
 
 - **A budget for each person**, kids included, plus a shared one for rent,
   groceries and the like.
