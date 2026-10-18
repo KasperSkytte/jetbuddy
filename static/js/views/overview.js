@@ -7,6 +7,7 @@ import { Dot, Empty, Icon, seriesColor } from '../ui.js';
 import { members, memberById, memberColor, categoryById, accountById, INCOME_COLOR, EXPENSE_COLOR, referenceMonth, monthTotals } from '../model.js';
 import { CopyYearBanner } from './plan.js';
 import { ExportSheet } from './export.js';
+import { InstallTip } from './install.js';
 import { useState } from '../lib.js';
 
 function Tile({ label, value, delta }) {
@@ -35,7 +36,8 @@ export function Overview() {
   const fixed = sum(s.fixed);
 
   if (!items.data.length) {
-    return html`<${CopyYearBanner} year=${year} />
+    return html`<${InstallTip} />
+      <${CopyYearBanner} year=${year} />
       <div class="card"><${Empty} title=${t('overview.emptyTitle', { year })}>
         <p>${t('overview.emptyText')}</p>
         <div class="row wrap" style="justify-content:center">
@@ -78,6 +80,7 @@ export function Overview() {
     .filter((a) => a.account && !a.account.archived);
 
   return html`<div class=${summary.loading ? 'refetching' : ''}>
+    <${InstallTip} />
     ${isThisYear && html`<a href="#/month" onClick=${() => setStore({ month: refMonth + 1 })} class="card" style="display:block;text-decoration:none;color:inherit;margin-bottom:12px">
       <div class="card-head" style="margin-bottom:8px"><h2 style="text-transform:capitalize">${long[refMonth]}</h2><span class="muted small">${t('overview.editMonth')}</span><${Icon} name="right" size=${18} /></div>
       <div class="sum-strip">

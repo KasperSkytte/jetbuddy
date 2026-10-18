@@ -502,3 +502,8 @@ details.more summary { cursor: pointer; color: var(--accent-ink); font-weight: 5
 .rule-box { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 12px; border: 1px solid var(--border); border-radius: 12px; }
 .export-card { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .export-card .spacer { min-width: 200px; }
+
+/* ---------------------------------------------------------------- install guide */
+
+.install-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; font-size: 14.5px; line-height: 1.55; }
+.glyph { display: inline-grid; place-items: center; width: 26px; height: 26px; margin: -4px 1px; border-radius: 7px; background: var(--surface-2); border: 1px solid var(--border); color: var(--accent-ink); vertical-align: middle; }

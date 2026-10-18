@@ -8,6 +8,7 @@ import { categories } from '../model.js';
 import { ImportSheet } from './import.js';
 import { BankSettings } from './bank.js';
 import { ExportSheet } from './export.js';
+import { InstallGuide } from './install.js';
 
 export const LOCALES = ['en-US', 'en-GB', 'da-DK', 'de-DE', 'de-CH', 'sv-SE', 'nb-NO', 'fi-FI', 'nl-NL', 'fr-FR', 'es-ES', 'it-IT', 'pl-PL'];
 export const CURRENCIES = ['DKK', 'EUR', 'USD', 'GBP', 'SEK', 'NOK', 'ISK', 'CHF', 'PLN', 'CZK', 'CAD', 'AUD', 'NZD', 'JPY', 'INR', 'BRL', 'ZAR'];
@@ -322,6 +323,7 @@ export function Settings() {
   const { household } = useStore();
   return html`<div style="max-width:760px">
     <${HouseholdForm} key=${JSON.stringify(household.settings)} />
+    <${Section} title=${t('install.title')} icon="addSquare"><div style="padding:0 16px 16px"><${InstallGuide} /></div></${Section}>
     <${People} />
     <${Accounts} />
     <${BankSettings} />
