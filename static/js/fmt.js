@@ -30,8 +30,9 @@ export function setFormat({ language = 'en', currency = 'USD', decimal, both = '
     both: both === 'invalid' ? 'invalid' : 'last', // 'either' with a comma and a dot: the last is the decimal sign, or invalid
     decimal: dec,
     group: either ? '\u202f' : dec === ',' ? '.' : ',',
-    money: make({ style: 'currency', currency, maximumFractionDigits: 0, minimumFractionDigits: 0 }, { maximumFractionDigits: 0 }),
-    moneyShort: make({ style: 'currency', currency, notation: 'compact', maximumFractionDigits: 1 }, { notation: 'compact', maximumFractionDigits: 1 }),
+    // narrowSymbol: "$" rather than "US$", "kr." for kroner.
+    money: make({ style: 'currency', currency, currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0, minimumFractionDigits: 0 }, { maximumFractionDigits: 0 }),
+    moneyShort: make({ style: 'currency', currency, currencyDisplay: 'narrowSymbol', notation: 'compact', maximumFractionDigits: 1 }, { notation: 'compact', maximumFractionDigits: 1 }),
     plain: make({ maximumFractionDigits: 2, minimumFractionDigits: 0 }),
     compact: make({ notation: 'compact', maximumFractionDigits: 1 }),
     pct: make({ style: 'percent', maximumFractionDigits: 0 }),

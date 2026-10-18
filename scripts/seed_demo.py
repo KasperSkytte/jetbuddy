@@ -1,16 +1,19 @@
-"""Fill an empty Jetbuddy with a made-up family, to try it out or take screenshots.
+"""Add a made-up family to a Jetbuddy, to try it out or take screenshots.
 
     python scripts/seed_demo.py http://localhost:8000
 
-Only works on a Jetbuddy that has not been set up yet.
+Creates the budget "demo" with the password "demo-demo".
 """
 
+import http.cookiejar
 import json
 import random
 import sys
 import urllib.request
 
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000").rstrip("/")
+# Creating the budget logs in; the cookie keeps it that way for the calls after.
+opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
 
 def call(method, path, body=None):
@@ -20,7 +23,7 @@ def call(method, path, body=None):
         data=None if body is None else json.dumps(body).encode(),
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req) as res:
+    with opener.open(req) as res:
         return json.loads(res.read())
 
 
@@ -36,11 +39,13 @@ def main():
     random.seed(7)
     state = call(
         "POST",
-        "/api/setup",
+        "/api/budgets",
         {
             "household": "The Demo Family",
+            "login": "demo",
+            "password": "demo-demo",
             "language": "en",
-            "locale": "en-US",
+            "decimal": ".",
             "currency": "USD",
             "members": ["Alex", "Sam", "Mia", "Leo"],
             "shared_name": "Shared",
@@ -90,7 +95,7 @@ def main():
     call("PUT", f"/api/accounts/{acc['main']}/balance", {"year": 2025, "month": 1, "amount": 3200})
     call("PUT", f"/api/accounts/{acc['savings']}/balance", {"year": 2025, "month": 1, "amount": 18500})
     call("PUT", f"/api/accounts/{acc['main']}/balance", {"year": 2026, "month": 6, "amount": 4100})
-    print("Demo family created.")
+    print("Demo family created: log in as demo / demo-demo.")
 
 
 if __name__ == "__main__":

@@ -31,7 +31,6 @@ export function Login({ canCreate, onDone, onCreate }) {
         <input class="input" type="password" name="password" autocomplete="current-password" value=${password} onInput=${(e) => setPassword(e.target.value)} /></label>
       ${error && html`<div class="bad small">${error}</div>`}
       <button class="btn primary block" disabled=${busy || !login || !password}>${t('login.submit')}</button>
-      <p class="small muted" style="margin:0">${t('login.hint')}</p>
     </form>
     ${canCreate && html`<p style="text-align:center"><button class="btn ghost" onClick=${onCreate}>${t('login.newBudget')}</button></p>`}
   </div></div>`;

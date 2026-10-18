@@ -216,7 +216,7 @@ def health():
 def _login_name(login: str) -> str:
     login = login.strip().lower()
     if len(login) < 2 or any(ch.isspace() for ch in login):
-        raise AppError(422, "USERNAME_INVALID", "the username must be at least 2 characters, without spaces")
+        raise AppError(422, "USERNAME_INVALID", "the budget name must be at least 2 characters, without spaces")
     return login
 
 
@@ -241,7 +241,7 @@ def _check_password(request: Request, row, password: str) -> None:
     if row is None or not auth.verify_password(password, row["password_hash"]):
         auth.record_failure(client)
         time.sleep(1)
-        raise AppError(401, "WRONG_LOGIN", "wrong username or password")
+        raise AppError(401, "WRONG_LOGIN", "wrong budget name or password")
 
 
 @app.get("/api/session")
@@ -299,7 +299,7 @@ def change_login_details(body: LoginDetailsIn, request: Request, response: Respo
                 login = _login_name(body.login)
                 taken = server.execute("SELECT 1 FROM budgets WHERE login = ? AND id != ?", (login, row["id"])).fetchone()
                 if taken:
-                    raise AppError(409, "USERNAME_TAKEN", "that username is taken")
+                    raise AppError(409, "USERNAME_TAKEN", "that budget name is taken")
                 server.execute("UPDATE budgets SET login = ? WHERE id = ?", (login, row["id"]))
             if body.password is not None:
                 password_hash = auth.hash_password(body.password)
@@ -405,7 +405,7 @@ def create_budget(body: NewBudgetIn, request: Request, response: Response):
         if count and not auth.allow_new_budgets():
             raise AppError(403, "NEW_BUDGETS_OFF", "new budgets are turned off on this server")
         if server.execute("SELECT 1 FROM budgets WHERE login = ?", (login,)).fetchone():
-            raise AppError(409, "USERNAME_TAKEN", "that username is taken")
+            raise AppError(409, "USERNAME_TAKEN", "that budget name is taken")
         budget_id = server.execute(
             "INSERT INTO budgets (name, login, password_hash, created) VALUES (?, ?, ?, ?)",
             (body.household.strip(), login, password_hash, int(time.time())),

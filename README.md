@@ -9,10 +9,11 @@ stays on your own server.
 
 <p>
   <img src="docs/phone-overview.png" width="200" alt="Overview on a phone">
+  <img src="docs/phone-month.png" width="200" alt="This month's expenses on a phone">
   <img src="docs/phone-budget.png" width="200" alt="Budget items on a phone">
-  <img src="docs/phone-month.png" width="200" alt="This month's amounts on a phone">
-  <img src="docs/phone-trends-dark.png" width="200" alt="Trends across years, dark mode">
+  <img src="docs/phone-balance-dark.png" width="200" alt="Monthly balance, dark mode">
 </p>
+<img src="docs/desktop-month.png" alt="Income and expenses side by side on a computer">
 
 ## Features
 
@@ -21,13 +22,16 @@ stays on your own server.
 - **Simple items.** "2,500 every month" or "880 every quarter". When one month
   is different, tap it and change just that month.
 - **Every year in one place.** Start next year from this year with one tap.
-- **An overview** of income, expenses, savings and where the money goes, per
-  month, per person and per category, and how it changes over the years.
-- **Bank sync (optional).** See your real account balances, and what was
-  actually paid next to what you planned.
+- **An overview** of income, expenses, the monthly balance, savings and where
+  the money goes, per person and per category, and how it changes over the years.
+- **Bank sync (optional).** Your bank accounts and their real balances show up
+  by themselves, and you see what was actually paid next to what you planned.
+- **Checks the numbers.** Amounts that look 10, 100 or 1000 times off, the
+  usual result of a comma read as a dot, are flagged with a one-tap fix, and
+  the overview tells you when the totals can't be trusted yet.
 - **Export to Excel**, and import your old budget spreadsheet.
 - One login per household. Several households can share a server.
-- English and Danish, any currency, light and dark mode.
+- English and Danish, any currency, comma or dot decimals, light and dark mode.
 
 ## Getting started
 
@@ -46,12 +50,13 @@ services:
 ```
 
 Then run `docker compose up -d`, open `http://<your-server>:8000`, and create
-your budget. You pick a username and password that the whole household shares.
+your budget. You pick a budget name and a password that the whole household
+shares.
 
-**On your phone**, open the same address and choose *Add to Home Screen*.
-Jetbuddy then opens like a normal app. On Android this works best over https,
-so if you have a reverse proxy (Caddy, Traefik, Nginx Proxy Manager…), put
-Jetbuddy behind it.
+**On your phone**, open the same address and add it to your home screen: the
+app shows you how under **Settings → Install as app**. Jetbuddy then opens like
+a normal app. On Android this works best over https, so if you have a reverse
+proxy (Caddy, Traefik, Nginx Proxy Manager…), put Jetbuddy behind it.
 
 ## Connecting your bank
 
@@ -64,6 +69,11 @@ Setting it up takes about ten minutes, and the app walks you through every step
 under **Settings → Bank**. After that, Jetbuddy syncs by itself a few times a
 day. Every few months your bank asks you to log in again, and Jetbuddy tells you
 when.
+
+Your bank accounts then appear under **Settings → Accounts**, where you can give
+them your own names. Which accounts Jetbuddy sees is decided at the bank: leave
+an account out there (or unlink it in Enable Banking) and it disappears from
+Jetbuddy with all its data.
 
 Transactions show up in the month view, where you put each one on a budget item.
 Tick "do the same next time" and future ones sort themselves.
@@ -100,8 +110,8 @@ JETBUDDY_DATA_DIR=./data .venv/bin/uvicorn app.main:app --reload
 .venv/bin/pytest
 ```
 
-Run `python scripts/seed_demo.py http://localhost:8000` against an empty instance
-to get a made-up family to play with. The backend is FastAPI with SQLite in
+Run `python scripts/seed_demo.py http://localhost:8000` to add a made-up family
+to play with (log in as `demo` / `demo-demo`). The backend is FastAPI with SQLite in
 `app/`, and the frontend in `static/` has no build step (Preact and htm are
 included). Translations live in `static/js/i18n.js`. To add a language, copy
 the English block.
