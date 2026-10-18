@@ -3,8 +3,8 @@ import { api } from '../api.js';
 import { useStore, useData, setStore } from '../store.js';
 import { t } from '../i18n.js';
 import { money, signedMoney, monthNames, amount } from '../fmt.js';
-import { AmountInput, Chips, Dot, Icon, Empty, seriesColor, useWide, KindSwitch } from '../ui.js';
-import { members, itemsOf, monthTotals, categoryById, accountById, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
+import { AmountInput, Chips, Dot, Icon, Empty, seriesColor, useWide, KindSwitch, SortChoice } from '../ui.js';
+import { members, itemsOf, monthTotals, categoryById, accountById, sortItems, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
 import { CopyYearBanner } from './plan.js';
 import { TransactionsSheet } from './bank.js';
@@ -76,9 +76,9 @@ function ItemRow({ item, month, year, household, onSaved, onOpen }) {
 }
 
 /** One person's income or expenses for the month. */
-function MemberSection({ member, kind, items, month, year, household, onSaved, onOpen, onAdd }) {
+function MemberSection({ member, kind, items, month, year, household, onSaved, onOpen, onAdd, sortBy }) {
   const [showAll, setShowAll] = useState(false);
-  const all = items.filter((i) => i.kind === kind);
+  const all = sortItems(items.filter((i) => i.kind === kind), sortBy, { month, household });
   const withAmount = all.filter((i) => i.amounts[month - 1] != null || i.unreadable?.[month - 1]);
   const shown = showAll ? all : withAmount;
   const hidden = all.length - withAmount.length;
@@ -167,7 +167,7 @@ export function Month() {
     }
     return shown.map((m) => html`<${MemberSection} key=${m.id + '-' + kind + '-' + month} member=${m} kind=${kind}
       items=${itemsOf(list, m.id)} month=${month} year=${year} household=${household}
-      onSaved=${onSaved} onOpen=${(item) => setEditing({ item })} onAdd=${onAdd} />`);
+      onSaved=${onSaved} onOpen=${(item) => setEditing({ item })} onAdd=${onAdd} sortBy=${store.sortBy} />`);
   };
 
   return html`<div>
@@ -191,12 +191,14 @@ export function Month() {
     </div>
     ${!list ? html`<div class="loading">${t('common.loading')}</div>` : html`
       ${list.length === 0 && html`<${CopyYearBanner} year=${year} />`}
+      ${!wide && html`<${KindSwitch} />`}
+      <div class="list-tools"><${SortChoice} /></div>
       ${wide ? html`<div class="plan-cols">${['income', 'expense'].map((kind) => html`<div key=${kind}>
           <div class="col-head"><h2><${Dot} color=${kind === 'income' ? INCOME_COLOR : EXPENSE_COLOR} size=${10} />
             ${kind === 'income' ? t('common.income') : t('common.expenses')}</h2>
             <span class="num secondary" style="font-weight:650">${totals ? money(kind === 'income' ? totals.income : totals.expense) : ''}</span></div>
           ${column(kind)}</div>`)}</div>`
-        : html`<${KindSwitch} />${column(store.kindTab || 'expense')}`}
+        : column(store.kindTab || 'expense')}
       ${filter === 'all' && html`<${Balances} summary=${summary.data} month=${month} year=${year} household=${household} bank=${bank.data} onSaved=${summary.reload} />`}
     `}
     ${editing && html`<${ItemSheet} year=${year} item=${editing.item} member=${editing.member} kind=${editing.kind}

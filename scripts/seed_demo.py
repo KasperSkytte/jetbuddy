@@ -49,6 +49,7 @@ def main():
             "currency": "USD",
             "members": ["Alex", "Sam", "Mia", "Leo"],
             "shared_name": "Shared",
+            "starter_accounts": True,
         },
     )
     m = {x["name"]: x["id"] for x in state["members"]}

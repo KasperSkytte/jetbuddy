@@ -1,6 +1,6 @@
 // Lookups over the household data from /api/state.
 import { seriesColor } from './ui.js';
-import { t } from './i18n.js';
+import { t, currentLanguage } from './i18n.js';
 import { amount, monthNames } from './fmt.js';
 
 export function members(household, { archived = false } = {}) {
@@ -98,4 +98,26 @@ export function describeAmounts(values) {
   }
   const months = values.map((v, i) => (v != null ? short[i] : null)).filter(Boolean);
   return t('pattern.in', { amount: amount(p.value), months: months.join(', ') });
+}
+
+// ------------------------------------------------------------------ sorting
+
+const collator = () => new Intl.Collator(currentLanguage() === 'da' ? 'da' : 'en', { sensitivity: 'base', numeric: true });
+
+/**
+ * Items in the chosen order: 'custom' (as arranged), 'amount' (largest first:
+ * the month's amount when month is given, else the year's total), 'name', or
+ * 'category' (then name).
+ */
+export function sortItems(items, by, { month, household } = {}) {
+  if (by === 'custom' || !by) return items;
+  const c = collator();
+  const total = (i) => (month ? i.amounts[month - 1] ?? -Infinity : i.amounts.reduce((s, v) => s + (v || 0), 0));
+  const cat = (i) => (i.category_id && categoryById(household, i.category_id)?.name) || '\uffff'; // uncategorised last
+  const byName = (a, b) => c.compare(a.name, b.name);
+  const sorted = [...items];
+  if (by === 'amount') sorted.sort((a, b) => total(b) - total(a) || byName(a, b));
+  else if (by === 'name') sorted.sort(byName);
+  else if (by === 'category') sorted.sort((a, b) => c.compare(cat(a), cat(b)) || byName(a, b));
+  return sorted;
 }

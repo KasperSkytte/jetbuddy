@@ -518,3 +518,6 @@ details.more summary { cursor: pointer; color: var(--accent-ink); font-weight: 5
 .kind-switch .segmented button { flex: 1; min-height: 40px; font-size: 15px; }
 .col-head { display: flex; align-items: baseline; gap: 8px; margin: 0 4px 10px; }
 .col-head h2 { flex: 1; display: flex; align-items: center; gap: 8px; }
+.list-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.sort-choice { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text-2); font-weight: 560; }
+.sort-choice select.input { width: auto; min-height: 36px; padding: 4px 34px 4px 12px; font-size: 14.5px; border-radius: 999px; }

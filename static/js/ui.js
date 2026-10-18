@@ -280,3 +280,12 @@ export function KindSwitch() {
   return html`<div class="kind-switch"><${Segmented} value=${kindTab || 'expense'} onChange=${(v) => setStore({ kindTab: v })} label=${t('common.show')}
     options=${[{ value: 'income', label: t('common.income') }, { value: 'expense', label: t('common.expenses') }]} /></div>`;
 }
+
+/** How lists of income and expenses are ordered; remembered on this device. */
+export function SortChoice() {
+  const { sortBy } = useStore();
+  return html`<label class="sort-choice"><span>${t('sort.label')}</span>
+    <select class="input" value=${sortBy || 'custom'} onChange=${(e) => setStore({ sortBy: e.target.value })}>
+      ${['custom', 'amount', 'name', 'category'].map((v) => html`<option key=${v} value=${v}>${t('sort.' + v)}</option>`)}
+    </select></label>`;
+}
