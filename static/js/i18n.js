@@ -460,9 +460,7 @@ const en = {
   'import.useComma': 'Use comma as the decimal separator',
   'import.useDot': 'Use dot as the decimal separator',
   'overview.monthlyBalance': 'Monthly balance',
-  'overview.monthlyBalanceHint': 'Income minus expenses each month: above zero when more came in than went out.',
-  'overview.moreIn': 'More in',
-  'overview.moreOut': 'More out',
+  'overview.monthlyBalanceHint': 'Income minus expenses.',
 };
 
 const da = {
@@ -922,9 +920,7 @@ const da = {
   'import.useComma': 'Brug komma som decimaltegn',
   'import.useDot': 'Brug punktum som decimaltegn',
   'overview.monthlyBalance': 'Månedlig balance',
-  'overview.monthlyBalanceHint': 'Indtægter minus udgifter hver måned: over nul, når der kom mere ind, end der gik ud.',
-  'overview.moreIn': 'Mere ind',
-  'overview.moreOut': 'Mere ud',
+  'overview.monthlyBalanceHint': 'Indtægter minus udgifter.',
 };
 
 const DICTS = { en, da };
