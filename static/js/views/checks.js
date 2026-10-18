@@ -31,6 +31,8 @@ function describe(f) {
       return t('checks.large', { where: whereText(f.where), value: amount(f.values[0]), income: money(f.income) });
     case 'balance':
       return t('checks.balance', { where: whereText(f.where), value: money(f.values[0]), expected: money(f.expected) });
+    case 'decimals':
+      return t('checks.decimals', { where: whereText(f.where), values: list(f.values) });
     case 'unreadable':
       return t('checks.unreadable', { where: whereText(f.where), raw: f.raw.map((r) => `“${r}”`).join(', ') });
   }
@@ -39,6 +41,7 @@ function describe(f) {
 
 function optionLabel(f, o) {
   if (o.action === 'bank') return t('checks.useBank');
+  if (o.action === 'round') return t('checks.round.' + o.mode);
   const n = amount(o.multiply < 1 ? Math.round(1 / o.multiply) : o.multiply);
   const label = t(o.multiply < 1 ? 'checks.divide' : 'checks.multiply', { n });
   // Two possible fixes: say which amounts each one changes.
@@ -60,7 +63,7 @@ function Finding({ f, onResult, onOpen }) {
   };
   const fix = (o) => act('/api/checks/fix', {
     item_id: f.item_id ?? null, account_id: f.account_id ?? null, where: o.where,
-    multiply: o.action === 'scale' ? o.multiply : null, use_bank: o.action === 'bank',
+    multiply: o.action === 'scale' ? o.multiply : null, use_bank: o.action === 'bank', round: o.action === 'round' ? o.mode : null,
   });
   return html`<div class="card finding">
     <div class="row">

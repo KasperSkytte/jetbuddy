@@ -142,10 +142,21 @@ def one(conn, sql, args=()) -> dict:
     return dict(r)
 
 
-def cents_list(values: list[float | None]) -> list[int | None]:
+def amount_cents(conn, value: float | None) -> int | None:
+    """An amount typed or imported, in cents, as the budget's decimals setting
+    says: rounded to whole units, or refused when it has decimals and only
+    whole numbers are accepted."""
+    cents = db.to_cents(value)
+    mode = db.decimals_mode(conn)
+    if mode == "only" and cents is not None and cents % 100:
+        raise AppError(422, "WHOLE_NUMBERS", "only whole numbers are accepted")
+    return db.round_cents(cents, mode)
+
+
+def cents_list(conn, values: list[float | None]) -> list[int | None]:
     if len(values) != 12:
         raise AppError(422, "INVALID", "amounts must have 12 values")
-    return [db.to_cents(v) for v in values]
+    return [amount_cents(conn, v) for v in values]
 
 
 def money_list(values: list[int | None]) -> list[float | None]:
@@ -464,6 +475,8 @@ class SettingsIn(BaseModel):
     # With decimal 'either': a number with both comma and dot takes the last
     # one as the decimal separator ('last'), or is rejected ('invalid').
     decimal_both: Literal["last", "invalid"] | None = None
+    # Keep decimals, round them off, or accept whole numbers only.
+    decimals: Literal["keep", "nearest", "up", "down", "only"] | None = None
     currency: str | None = Field(None, max_length=3)
 
 
@@ -483,6 +496,8 @@ def update_settings(body: SettingsIn, request: Request, conn: sqlite3.Connection
         body.household = name
     with db.transaction(conn):
         set_settings(conn, body.model_dump(exclude_none=True))
+        if body.decimals is not None:
+            banking.update_month_balances(conn)  # balances from the bank, rounded the new way
     return get_settings(conn)
 
 
@@ -646,7 +661,7 @@ def set_balance(id: int, body: BalanceIn, conn: sqlite3.Connection = Conn):
         conn.execute(
             "INSERT INTO account_balances (account_id, year, month, cents, source) VALUES (?, ?, ?, ?, 'manual') "
             "ON CONFLICT (account_id, year, month) DO UPDATE SET cents = excluded.cents, source = 'manual'",
-            (id, body.year, body.month, db.to_cents(body.amount)),
+            (id, body.year, body.month, amount_cents(conn, body.amount)),
         )
     return {"ok": True}
 
@@ -722,7 +737,7 @@ def create_item(body: NewItemIn, conn: sqlite3.Connection = Conn):
                 int(bool(body.fixed)), body.note or "", next_sort(conn, "items"),
             ),
         )
-        set_amounts(conn, cur.lastrowid, body.year, cents_list(body.amounts or [None] * 12))
+        set_amounts(conn, cur.lastrowid, body.year, cents_list(conn, body.amounts or [None] * 12))
     return _get_item(conn, cur.lastrowid, body.year)
 
 
@@ -763,7 +778,7 @@ class AmountsIn(BaseModel):
 @app.put("/api/items/{id}/amounts")
 def put_amounts(id: int, body: AmountsIn, conn: sqlite3.Connection = Conn):
     one(conn, "SELECT id FROM items WHERE id = ?", (id,))
-    values = cents_list(body.amounts)
+    values = cents_list(conn, body.amounts)
     with db.transaction(conn):
         set_amounts(conn, id, body.year, values)
         # A month with an amount now no longer has an unreadable cell.
@@ -794,7 +809,7 @@ def put_amount(id: int, body: AmountIn, conn: sqlite3.Connection = Conn):
             conn.execute(
                 "INSERT INTO amounts (item_id, year, month, cents) VALUES (?, ?, ?, ?) "
                 "ON CONFLICT (item_id, year, month) DO UPDATE SET cents = excluded.cents",
-                (id, body.year, body.month, db.to_cents(body.amount)),
+                (id, body.year, body.month, amount_cents(conn, body.amount)),
             )
         conn.execute("INSERT OR IGNORE INTO item_years (item_id, year) VALUES (?, ?)", (id, body.year))
     return {"ok": True}
@@ -926,13 +941,15 @@ async def import_preview(
     file: UploadFile = File(...),
     decimal: Literal[",", ".", "either"] = Form(","),
     both: Literal["last", "invalid"] = Form("last"),
+    conn: sqlite3.Connection = Conn,
 ):
-    """Read a spreadsheet. decimal: the decimal separator of amounts written as text."""
+    """Read a spreadsheet. decimal: the decimal separator of amounts written as text.
+    Decimals are rounded off, or refused, as the budget's settings say."""
     data = await file.read(MAX_IMPORT_BYTES + 1)
     if len(data) > MAX_IMPORT_BYTES:
         raise AppError(413, "FILE_TOO_LARGE", "file is too large")
     try:
-        return {"sheets": importer.read_file(file.filename or "", data, decimal, both)}
+        return {"sheets": importer.read_file(file.filename or "", data, decimal, both, db.decimals_mode(conn))}
     except Exception as e:  # openpyxl raises many different errors for bad files
         raise AppError(422, "FILE_UNREADABLE", f"could not read the file: {e}")
 
@@ -988,7 +1005,7 @@ def import_commit(body: ImportIn, conn: sqlite3.Connection = Conn):
                     ).lastrowid
                     created += 1
                 amounts = [None if v is None else v * body.scale for v in row.amounts]
-                set_amounts(conn, item_id, body.year, cents_list(amounts))
+                set_amounts(conn, item_id, body.year, cents_list(conn, amounts))
                 conn.execute("DELETE FROM unreadable WHERE item_id = ? AND year = ?", (item_id, body.year))
                 conn.executemany(
                     "INSERT INTO unreadable (item_id, year, month, raw) VALUES (?, ?, ?, ?)",
@@ -1023,6 +1040,7 @@ class CheckFixIn(BaseModel):
     where: list[CheckPlace] = Field(min_length=1)
     multiply: float | None = Field(None, gt=0, le=10000)
     use_bank: bool = False
+    round: Literal["nearest", "up", "down"] | None = None
 
 
 @app.post("/api/checks/fix")
@@ -1031,7 +1049,7 @@ def fix_check(body: CheckFixIn, conn: sqlite3.Connection = Conn):
         raise AppError(422, "INVALID", "item_id or account_id is required")
     with db.transaction(conn):
         checks.fix(conn, item_id=body.item_id, account_id=body.account_id, where=[w.model_dump() for w in body.where],
-                   multiply=body.multiply, use_bank=body.use_bank)
+                   multiply=body.multiply, use_bank=body.use_bank, round_to=body.round)
     return checks.find(conn, _dismissed(conn))
 
 

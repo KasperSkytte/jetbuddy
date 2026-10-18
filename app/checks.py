@@ -1,6 +1,7 @@
 """Looking for amounts that are probably wrong by a factor of 10, 100 or 1000:
 a decimal separator read as a thousands separator, or the other way round,
-turns 31.250 into 31,250 or 149,95 into 14,995.
+turns 31.250 into 31,250 or 149,95 into 14,995. Also amounts with decimals
+from before the budget was set to whole numbers.
 
 Nothing here changes anything; it lists findings, each with the factor that
 would fix it when the difference is close to a power of ten.
@@ -11,7 +12,7 @@ import sqlite3
 import statistics
 from collections import defaultdict
 
-from . import banking, calc
+from . import banking, calc, db
 
 # How far off an amount must be to be reported. Real budgets vary (a bonus
 # month, a cold winter's electricity), but not 20 times over.
@@ -195,14 +196,50 @@ def find(conn: sqlite3.Connection, dismissed: set[str] = frozenset()) -> dict:
                         "options": _scale_option(where, factor),
                     })
 
-    order = {"unreadable": -1, "split": 0, "item": 0, "bank": 1, "large": 2, "balance": 3}
+    # 5. Amounts with decimals while the budget is set to whole numbers.
+    mode = db.decimals_mode(conn)
+    if mode != "keep":
+        def round_options(where):
+            modes = ["nearest", "up", "down"] if mode == "only" else [mode]
+            return [{"action": "round", "mode": m, "where": where} for m in modes]
+
+        fractions: dict[tuple[int, int], dict[int, int]] = defaultdict(dict)
+        for item_id, vals in values.items():
+            for (y, m), v in vals.items():
+                if v % 100:
+                    fractions[(item_id, y)][m] = v
+        for (item_id, y), cells in sorted(fractions.items()):
+            where = [{"year": y, "months": sorted(cells)}]
+            add(item_finding("decimals", item_id, where, values=[cells[m] / 100 for m in sorted(cells)][:12],
+                             factor=None, options=round_options(where)))
+        balances: dict[tuple[int, int], dict[int, int]] = defaultdict(dict)
+        for r in conn.execute("SELECT account_id, year, month, cents FROM account_balances WHERE cents % 100 != 0"):
+            balances[(r["account_id"], r["year"])][r["month"]] = r["cents"]
+        names = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM accounts")}
+        for (acc_id, y), cells in sorted(balances.items()):
+            where = [{"year": y, "months": sorted(cells)}]
+            add({"type": "decimals", "account_id": acc_id, "name": names.get(acc_id, ""), "where": where,
+                 "values": [cells[m] / 100 for m in sorted(cells)][:12], "factor": None, "options": round_options(where)})
+
+    order = {"unreadable": -1, "split": 0, "item": 0, "bank": 1, "large": 2, "balance": 3, "decimals": 4}
     findings.sort(key=lambda f: (f["year"], order[f["type"]], f["name"].lower()))
     return {"findings": findings, "checked": count}
 
 
 def fix(conn: sqlite3.Connection, *, item_id: int | None, account_id: int | None, where: list[dict],
-        multiply: float | None = None, use_bank: bool = False) -> None:
-    """Multiply the amounts by a factor, or take the bank's amount instead."""
+        multiply: float | None = None, use_bank: bool = False, round_to: str | None = None) -> None:
+    """Multiply the amounts by a factor, take the bank's amount instead, or
+    round them to whole numbers (round_to: nearest, up or down)."""
+    if round_to:
+        table, key = ("account_balances", "account_id") if account_id is not None else ("amounts", "item_id")
+        for w in where:
+            for m in w["months"]:
+                r = conn.execute(f"SELECT cents FROM {table} WHERE {key} = ? AND year = ? AND month = ?",
+                                 (account_id if account_id is not None else item_id, w["year"], m)).fetchone()
+                if r:
+                    conn.execute(f"UPDATE {table} SET cents = ? WHERE {key} = ? AND year = ? AND month = ?",
+                                 (db.round_cents(r[0], round_to), account_id if account_id is not None else item_id, w["year"], m))
+        return
     for w in where:
         year = w["year"]
         actual = banking.actuals(conn, year).get(item_id, [None] * 12) if use_bank else None

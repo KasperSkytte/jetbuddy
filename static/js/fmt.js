@@ -11,7 +11,7 @@ export function defaultDecimal(language) {
   return language === 'en' ? '.' : ',';
 }
 
-export function setFormat({ language = 'en', currency = 'USD', decimal, both = 'last' } = {}) {
+export function setFormat({ language = 'en', currency = 'USD', decimal, both = 'last', decimals = 'keep' } = {}) {
   const locale = LANGUAGE_LOCALE[language] || 'en-GB';
   // 'either': comma and dot both mean decimal, so numbers are shown with the
   // language's usual decimal sign and a thin space between thousands.
@@ -29,6 +29,7 @@ export function setFormat({ language = 'en', currency = 'USD', decimal, both = '
     either,
     both: both === 'invalid' ? 'invalid' : 'last', // 'either' with a comma and a dot: the last is the decimal sign, or invalid
     decimal: dec,
+    decimals, // keep | nearest | up | down | only (whole numbers only)
     group: either ? '\u202f' : dec === ',' ? '.' : ',',
     // narrowSymbol: "$" rather than "US$", "kr." for kroner.
     money: make({ style: 'currency', currency, currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0, minimumFractionDigits: 0 }, { maximumFractionDigits: 0 }),
@@ -90,6 +91,7 @@ export function percent(v) {
  */
 export function parseAmount(text) {
   if (text == null || String(text).trim() === '') return null;
+  if (fmt.decimals === 'only') return /^[0-9]+$/.test(String(text).trim()) ? Number(String(text).trim()) : NaN;
   const keep = fmt.either ? /[^0-9,.+-]/g : fmt.decimal === ',' ? /[^0-9,+-]/g : /[^0-9.+-]/g;
   const s = String(text).replace(/[−–]/g, '-').replace(keep, '');
   const terms = s.match(/[+-]?[^+-]+/g);
@@ -110,7 +112,7 @@ export function parseAmount(text) {
     if (value.split(dec).length > 2 || !/\d/.test(value)) return NaN;
     total += Number(value.replace(dec, '.'));
   }
-  return Number.isFinite(total) ? Math.round(total * 100) / 100 : NaN;
+  return Number.isFinite(total) ? roundWhole(Math.round(total * 100) / 100) : NaN;
 }
 
 /** Short and long month names, January first. */
@@ -123,4 +125,40 @@ export function sum(values) {
   let total = 0;
   for (const v of values) if (v != null) total += v;
   return Math.round(total * 100) / 100;
+}
+
+// ------------------------------------------------------------------ decimals
+
+/** v in whole units as the settings say (up and down: away from and towards zero). */
+export function roundWhole(v) {
+  const mode = fmt.decimals;
+  if (v == null || !['nearest', 'up', 'down'].includes(mode)) return v;
+  const cents = Math.abs(Math.round(v * 100));
+  let whole = Math.floor(cents / 100);
+  const rest = cents % 100;
+  if (rest && (mode === 'up' || (mode === 'nearest' && rest >= 50))) whole += 1;
+  return (v < 0 ? -1 : 1) * whole;
+}
+
+/** True when only whole numbers may be typed. */
+export function wholeOnly() {
+  return fmt.decimals === 'only';
+}
+
+/** An amount with decimals in a budget set to whole numbers: shown as a problem. */
+export function hasDecimals(v) {
+  return fmt.decimals !== 'keep' && v != null && Math.round(v * 100) % 100 !== 0;
+}
+
+/** For an amount box's onInput: with whole numbers only, nothing but 0-9 gets in. */
+export function cleanTyped(e) {
+  if (wholeOnly()) {
+    const clean = e.target.value.replace(/[^0-9]/g, '');
+    if (clean !== e.target.value) e.target.value = clean;
+  }
+  return e.target.value;
+}
+
+export function amountInputMode() {
+  return wholeOnly() ? 'numeric' : 'decimal';
 }

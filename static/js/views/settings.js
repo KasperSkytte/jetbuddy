@@ -132,6 +132,7 @@ function HouseholdForm() {
     language: s.language || 'en',
     decimal: s.decimal || defaultDecimal(s.language || 'en'),
     decimal_both: s.decimal_both || 'last',
+    decimals: s.decimals || 'keep',
     currency: s.currency || 'USD',
   }));
   // Every change is saved right away; the name when leaving the field.
@@ -162,6 +163,11 @@ function HouseholdForm() {
           ${(CURRENCIES.includes(form.currency) ? CURRENCIES : [form.currency, ...CURRENCIES]).map((c) => html`<option key=${c} value=${c}>${c}</option>`)}</select></label>
       <div class="field"><span>${t('settings.decimal')}</span><${DecimalChoice} value=${form.decimal} onChange=${(decimal) => save({ decimal })}
         both=${form.decimal_both} onBothChange=${(decimal_both) => save({ decimal_both })} /></div>
+      <label class="field"><span>${t('settings.decimals')}</span>
+        <select class="input" value=${form.decimals} onChange=${(e) => save({ decimals: e.target.value })}>
+          ${['keep', 'nearest', 'up', 'down', 'only'].map((v) => html`<option key=${v} value=${v}>${t('settings.decimals.' + v)}</option>`)}</select>
+        <span class="hint">${t('settings.decimalsHint.' + form.decimals)}</span>
+        ${form.decimals !== 'keep' && html`<span class="hint">${t('settings.decimalsOld')}</span>`}</label>
       <div class="field"><span>${t('settings.theme')}</span>
         <${Segmented} value=${theme} onChange=${(v) => { setStore({ theme: v }); applyTheme(v); }}
           options=${[{ value: 'auto', label: t('settings.themeAuto') }, { value: 'light', label: t('settings.themeLight') }, { value: 'dark', label: t('settings.themeDark') }]} /></div>

@@ -1,7 +1,7 @@
 // Small shared components: icons, modal sheet, toasts, amount input, chips.
 import { html, useState, useEffect, useRef, render } from './lib.js';
 import { useStore, setStore } from './store.js';
-import { amount, parseAmount } from './fmt.js';
+import { amount, parseAmount, hasDecimals, cleanTyped, amountInputMode } from './fmt.js';
 import { t, has } from './i18n.js';
 
 // ------------------------------------------------------------------ icons
@@ -200,12 +200,14 @@ export function AmountInput({ value, onSave, placeholder = '–', className = 'a
     }
   };
 
-  return html`<input ref=${ref} class=${[className, state, manual ? 'manual' : '', problem && value == null ? 'invalid' : ''].join(' ')}
-    type="text" inputmode="decimal" enterkeyhint="next" autocomplete="off"
+  const decimals = !focused && hasDecimals(value); // from before the budget was set to whole numbers
+  return html`<input ref=${ref} class=${[className, state, manual ? 'manual' : '', (problem && value == null) || decimals ? 'invalid' : ''].join(' ')}
+    type="text" inputmode=${amountInputMode()} enterkeyhint="next" autocomplete="off"
+    title=${decimals ? t('amount.hasDecimals') : null}
     aria-label=${label} placeholder=${placeholder} value=${text}
     onFocus=${(e) => { setFocused(true); setState(''); requestAnimationFrame(() => e.target.select()); }}
     onBlur=${() => { setFocused(false); commit(); }}
-    onInput=${(e) => { dirty.current = true; setText(e.target.value); }}
+    onInput=${(e) => { dirty.current = true; setText(cleanTyped(e)); }}
     onKeyDown=${keydown} />`;
 }
 

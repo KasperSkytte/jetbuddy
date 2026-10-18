@@ -9,6 +9,7 @@ own with its database and its bank key, so budgets never see each other.
     data/budgets/<id>/enablebanking.* its bank connection key, if any
 """
 
+import json
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -233,3 +234,28 @@ def from_cents(cents: int | None) -> float | None:
     if cents is None:
         return None
     return cents / 100
+
+
+# What the budget does with decimals ("decimals" setting): keep them, round
+# to whole units (to the nearest, always up or always down), or accept whole
+# numbers only, where amounts are typed or imported.
+DECIMAL_MODES = ("keep", "nearest", "up", "down", "only")
+
+
+def decimals_mode(conn: sqlite3.Connection) -> str:
+    r = conn.execute("SELECT value FROM settings WHERE key = 'decimals'").fetchone()
+    mode = json.loads(r[0]) if r else "keep"
+    return mode if mode in DECIMAL_MODES else "keep"
+
+
+def round_cents(cents: int | None, mode: str) -> int | None:
+    """cents in whole units as mode says. Up and down are away from and
+    towards zero, so a refund of -12.30 rounds up to -13 as 12.30 rounds up
+    to 13, and rounding down is dropping the decimals. 'keep' and 'only'
+    change nothing (with 'only', amounts with decimals are refused instead)."""
+    if cents is None or mode not in ("nearest", "up", "down"):
+        return cents
+    whole, rest = divmod(abs(cents), 100)
+    if rest and (mode == "up" or (mode == "nearest" and rest >= 50)):
+        whole += 1
+    return (-1 if cents < 0 else 1) * whole * 100

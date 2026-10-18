@@ -557,6 +557,7 @@ def update_month_balances(conn: sqlite3.Connection) -> None:
     """Save the real end-of-month balance of every Jetbuddy account that has
     bank accounts linked, for each completed month their transactions cover.
     A balance typed in by hand is left alone."""
+    mode = bank_mode(conn)
     groups: dict[int, list] = defaultdict(list)
     for ba in conn.execute(
         "SELECT * FROM bank_accounts WHERE account_id IS NOT NULL AND balance_cents IS NOT NULL AND history_from IS NOT NULL"
@@ -584,6 +585,7 @@ def update_month_balances(conn: sqlite3.Connection) -> None:
                 after = sum(r["cents"] for r in rows if r["booking_date"] > end.isoformat())
                 totals[(y, m)] += ba["balance_cents"] - after
         for (y, m), cents in totals.items():
+            cents = db.round_cents(cents, mode)
             conn.execute(
                 "INSERT INTO account_balances (account_id, year, month, cents, source) VALUES (?, ?, ?, ?, 'bank') "
                 "ON CONFLICT (account_id, year, month) DO UPDATE SET cents = excluded.cents "
@@ -728,16 +730,26 @@ def due_for_sync(conn: sqlite3.Connection, bdir: Path) -> bool:
 # Transactions for the app
 
 
+def bank_mode(conn: sqlite3.Connection) -> str:
+    """How the bank's amounts are rounded. They can't be refused, so with
+    whole numbers only they go to the nearest whole number."""
+    mode = db.decimals_mode(conn)
+    return "nearest" if mode == "only" else mode
+
+
 def actuals(conn: sqlite3.Connection, year: int) -> dict[int, list[int | None]]:
     """item_id -> 12 monthly totals of the bank transactions sorted onto it,
     as positive amounts in the item's own direction."""
+    mode = bank_mode(conn)
     out: dict[int, list[int | None]] = defaultdict(lambda: [None] * 12)
     for r in conn.execute(
-        "SELECT t.item_id, t.month, SUM(t.cents) AS cents, i.kind FROM bank_transactions t "
-        "JOIN items i ON i.id = t.item_id WHERE t.year = ? AND t.ignored = 0 GROUP BY t.item_id, t.month",
+        "SELECT t.item_id, t.month, t.cents, i.kind FROM bank_transactions t "
+        "JOIN items i ON i.id = t.item_id WHERE t.year = ? AND t.ignored = 0",
         (year,),
     ):
-        out[r["item_id"]][r["month"] - 1] = r["cents"] if r["kind"] == "income" else -r["cents"]
+        cents = db.round_cents(r["cents"], mode)
+        months = out[r["item_id"]]
+        months[r["month"] - 1] = (months[r["month"] - 1] or 0) + (cents if r["kind"] == "income" else -cents)
     return out
 
 
@@ -756,7 +768,9 @@ def month_transactions(conn: sqlite3.Connection, year: int, month: int) -> list[
         "WHERE i.id IN (SELECT item_id FROM item_years WHERE year = ? UNION SELECT item_id FROM amounts WHERE year = ?)",
         (year, month, year, year),
     ).fetchall()
+    mode = bank_mode(conn)
     for tx in rows:
+        tx["cents"] = db.round_cents(tx["cents"], mode)
         tx["suggestions"] = []
         if tx["item_id"] is None and not tx["ignored"]:
             kind = "income" if tx["cents"] > 0 else "expense"

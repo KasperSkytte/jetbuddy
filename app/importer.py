@@ -17,6 +17,8 @@ import unicodedata
 
 import openpyxl
 
+from .db import round_cents
+
 # Month names (and common abbreviations) in the languages people are most
 # likely to keep a budget in. Matched on the first three letters, accents removed.
 _MONTH_WORDS = [
@@ -66,7 +68,7 @@ def _month_of(header, position: int) -> int | None:
     return matches[0] if matches else None
 
 
-def parse_number(value, decimal: str = ",", both: str = "last") -> float | None:
+def parse_number(value, decimal: str = ",", both: str = "last", whole: str = "keep") -> float | None:
     """An amount from a spreadsheet cell. Real numbers are taken as they are.
     For text, decimal (',' or '.') is the decimal separator and everything
     else except digits and a leading minus is ignored: thousands separators,
@@ -75,9 +77,17 @@ def parse_number(value, decimal: str = ",", both: str = "last") -> float | None:
     decimal 'either' takes comma or dot as the decimal separator. For a number
     with both, both='last' makes the last one the decimal separator and
     ignores the other (1.234,56 and 1,234.56 are both 1234.56); both='invalid'
-    rejects it. More than one decimal separator is never valid."""
+    rejects it. More than one decimal separator is never valid.
+
+    whole='only' accepts whole numbers only: nothing but the digits 0-9 (a
+    number cell must be a whole number). Rounding is done by the caller."""
     if value is None or isinstance(value, bool):
         return None
+    if whole == "only":
+        if isinstance(value, (int, float)):
+            return float(round(value)) if abs(value - round(value)) < 1e-6 else None
+        text = str(value).strip()
+        return float(text) if re.fullmatch(r"[0-9]+", text) else None
     if isinstance(value, (int, float)):
         return float(value)
     text = str(value).strip().replace("\u2212", "-").replace("\u2013", "-")
@@ -112,7 +122,8 @@ def other_decimal(text, decimal: str) -> bool:
     return any(len(re.match(r"\d*", g).group()) != 3 for g in s.split(other)[1:])
 
 
-def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None, decimal: str = ",", both: str = "last") -> dict | None:
+def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None, decimal: str = ",", both: str = "last",
+                whole: str = "keep") -> dict | None:
     """Find the month header row and read the rows below it."""
     header_row = None
     month_cols: dict[int, int] = {}
@@ -147,10 +158,11 @@ def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None,
         values: list[float | None] = [None] * 12
         invalid: dict[int, str] = {}  # month -> the text that couldn't be read
         for c, month in month_cols.items():
-            v = parse_number(row[c], decimal, both) if c < len(row) else None
-            if v is None and c < len(row) and isinstance(row[c], str) and re.search(r"\d", row[c]):
-                unreadable.append(row[c].strip())  # has digits, but isn't a valid amount
-                invalid[month] = row[c].strip()[:100]
+            v = parse_number(row[c], decimal, both, whole) if c < len(row) else None
+            if v is None and c < len(row) and re.search(r"\d", str(row[c] or "")) and not isinstance(row[c], bool):
+                raw = row[c].strip() if isinstance(row[c], str) else str(row[c])
+                unreadable.append(raw)  # has digits, but isn't a valid amount
+                invalid[month] = raw[:100]
             if c < len(row) and other_decimal(row[c], decimal):
                 suspects.append(str(row[c]).strip())
             is_formula = bool(formulas) and c < len(formulas[r]) and str(formulas[r][c] or "").startswith("=")
@@ -171,6 +183,9 @@ def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None,
     if flip:
         for row in rows:
             row["amounts"] = [None if v is None else -v for v in row["amounts"]]
+    if whole in ("nearest", "up", "down"):
+        for row in rows:
+            row["amounts"] = [None if v is None else round_cents(round(v * 100), whole) / 100 for v in row["amounts"]]
 
     lowered = _norm(name)
     kind = None
@@ -190,31 +205,31 @@ def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None,
     }
 
 
-def read_xlsx(data: bytes, decimal: str = ",", both: str = "last") -> list[dict]:
+def read_xlsx(data: bytes, decimal: str = ",", both: str = "last", whole: str = "keep") -> list[dict]:
     values_wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True, read_only=True)
     formulas_wb = openpyxl.load_workbook(io.BytesIO(data), data_only=False, read_only=True)
     sheets = []
     for ws in values_wb.worksheets:
         grid = [list(row) for row in ws.iter_rows(values_only=True)]
         formulas = [list(row) for row in formulas_wb[ws.title].iter_rows(values_only=True)]
-        parsed = _parse_grid(ws.title, grid, formulas, decimal, both)
+        parsed = _parse_grid(ws.title, grid, formulas, decimal, both, whole)
         if parsed:
             sheets.append(parsed)
     return sheets
 
 
-def read_csv(data: bytes, name: str = "CSV", decimal: str = ",", both: str = "last") -> list[dict]:
+def read_csv(data: bytes, name: str = "CSV", decimal: str = ",", both: str = "last", whole: str = "keep") -> list[dict]:
     text = data.decode("utf-8-sig", errors="replace")
     try:
         dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
     except csv.Error:
         dialect = csv.excel
     grid = [row for row in csv.reader(io.StringIO(text), dialect)]
-    parsed = _parse_grid(name, grid, decimal=decimal, both=both)
+    parsed = _parse_grid(name, grid, decimal=decimal, both=both, whole=whole)
     return [parsed] if parsed else []
 
 
-def read_file(filename: str, data: bytes, decimal: str = ",", both: str = "last") -> list[dict]:
+def read_file(filename: str, data: bytes, decimal: str = ",", both: str = "last", whole: str = "keep") -> list[dict]:
     if filename.lower().endswith((".xlsx", ".xlsm")):
-        return read_xlsx(data, decimal, both)
-    return read_csv(data, filename.rsplit(".", 1)[0], decimal, both)
+        return read_xlsx(data, decimal, both, whole)
+    return read_csv(data, filename.rsplit(".", 1)[0], decimal, both, whole)

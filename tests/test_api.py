@@ -349,3 +349,59 @@ def test_budget_name_is_the_login(client):
     client.post("/api/logout")
     new_budget(client, login=None, household="Other")
     assert client.put("/api/settings", json={"household": "HANSEN-BERG"}).status_code == 409
+
+
+def test_decimals_rounded_as_set(client, household):
+    phone = add(client, household, "Alex", "expense", "Phone", [149.95] * 12)
+    refund = add(client, household, "Alex", "expense", "Refund", [-12.3] + [None] * 11)
+    for mode, typed, stored in [("nearest", 178.5, 179), ("nearest", 178.49, 178), ("up", 178.01, 179), ("down", 178.99, 178)]:
+        assert client.put("/api/settings", json={"decimals": mode}).status_code == 200
+        client.put(f"/api/items/{phone['id']}/amount", json={"year": 2027, "month": 1, "amount": typed})
+        assert client.get("/api/years/2027/items").json()[0]["amounts"][0] == stored, mode
+    # Up and down are away from and towards zero.
+    client.put("/api/settings", json={"decimals": "up"})
+    client.put(f"/api/items/{refund['id']}/amounts", json={"year": 2027, "amounts": [-12.3] + [None] * 11})
+    assert client.get("/api/years/2027/items").json()[1]["amounts"][0] == -13
+    # Amounts from before still have decimals: the check finds them and rounds them.
+    f = next(f for f in client.get("/api/checks").json()["findings"] if f["type"] == "decimals")
+    assert f["item_id"] == phone["id"] and f["where"] == [{"year": 2027, "months": list(range(2, 13))}]
+    assert [o["mode"] for o in f["options"]] == ["up"]
+    o = f["options"][0]
+    client.post("/api/checks/fix", json={"item_id": phone["id"], "where": o["where"], "round": o["mode"]})
+    assert client.get("/api/years/2027/items").json()[0]["amounts"][1:] == [179] * 11
+    assert not any(f["type"] == "decimals" for f in client.get("/api/checks").json()["findings"])
+
+
+def test_whole_numbers_only(client, household):
+    phone = add(client, household, "Alex", "expense", "Phone", [149.95] + [None] * 11)
+    client.put("/api/settings", json={"decimals": "only"})
+    r = client.put(f"/api/items/{phone['id']}/amount", json={"year": 2027, "month": 2, "amount": 149.95})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "WHOLE_NUMBERS"
+    assert client.put(f"/api/items/{phone['id']}/amount", json={"year": 2027, "month": 2, "amount": 179}).status_code == 200
+    # The old amount with decimals is reported, with a choice of how to round it.
+    f = next(f for f in client.get("/api/checks").json()["findings"] if f["type"] == "decimals")
+    assert f["values"] == [149.95] and [o["mode"] for o in f["options"]] == ["nearest", "up", "down"]
+    # Importing: anything but the digits 0-9 can't be read.
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Alex ud"
+    ws.append(["", "Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"])
+    ws.append(["Phone", "179", "149,95", "1.179", 179, 149.95, "179 kr"] + [None] * 6)
+    buf = io.BytesIO()
+    wb.save(buf)
+    row = client.post("/api/import/preview", files={"file": ("b.xlsx", buf.getvalue())}).json()["sheets"][0]["rows"][0]
+    assert row["amounts"][:6] == [179, None, None, 179, None, None]
+    assert row["invalid"] == {"2": "149,95", "3": "1.179", "5": "149.95", "6": "179 kr"}
+
+
+def test_import_rounds_decimals(client, household):
+    client.put("/api/settings", json={"decimals": "down"})
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Alex ud"
+    ws.append(["", "Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"])
+    ws.append(["Phone", "-149,95", -99.9] + [None] * 10)
+    buf = io.BytesIO()
+    wb.save(buf)
+    row = client.post("/api/import/preview", files={"file": ("b.xlsx", buf.getvalue())}).json()["sheets"][0]["rows"][0]
+    assert row["amounts"][:2] == [178, 99]  # flipped to positive, then the decimals dropped

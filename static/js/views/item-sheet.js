@@ -2,7 +2,7 @@ import { html, useState, useRef, useEffect } from '../lib.js';
 import { api } from '../api.js';
 import { useStore, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
-import { monthNames, parseAmount, amount, money, sum } from '../fmt.js';
+import { monthNames, parseAmount, amount, money, sum, hasDecimals, cleanTyped, amountInputMode } from '../fmt.js';
 import { Sheet, Segmented, Switch, Icon, toast, toastError } from '../ui.js';
 import { members, categories, EVERY, applyPattern, detectPattern } from '../model.js';
 
@@ -55,15 +55,16 @@ function MonthTile({ label, longLabel, value, onCommit, onInvalid, problem }) {
   };
   // An import cell that couldn't be read: shown until an amount is typed.
   const missing = problem && value == null && !text;
-  return html`<label class=${'mtile' + (value != null ? ' on' : '') + (bad || missing ? ' problem' : '')}
-      title=${missing ? t('item.unreadableTile', { raw: problem }) : null}>
+  const decimals = hasDecimals(value) && text === amount(value); // from before the budget was set to whole numbers
+  return html`<label class=${'mtile' + (value != null ? ' on' : '') + (bad || missing || decimals ? ' problem' : '')}
+      title=${missing ? t('item.unreadableTile', { raw: problem }) : decimals ? t('amount.hasDecimals') : null}>
     <span class="m">${label}</span>
-    <input type="text" inputmode="decimal" enterkeyhint="next" autocomplete="off" value=${text}
+    <input type="text" inputmode=${amountInputMode()} enterkeyhint="next" autocomplete="off" value=${text}
       placeholder=${missing ? `“${problem}”` : '–'} aria-label=${longLabel}
       class=${bad || Number.isNaN(parseAmount(text)) ? 'invalid' : ''}
       onFocus=${(e) => requestAnimationFrame(() => e.target.select())}
       onBlur=${commit}
-      onInput=${(e) => setText(e.target.value)} onKeyDown=${keydown} />
+      onInput=${(e) => setText(cleanTyped(e))} onKeyDown=${keydown} />
   </label>`;
 }
 
@@ -233,8 +234,8 @@ export function ItemSheet({ year, item, member, kind, focusMonth, initial, onClo
       <div class="amount-box">
         <div class="form-grid two">
           ${mode === 'pattern' && html`<label class="field"><span>${t('item.amount')}</span>
-            <input class="input big" type="text" inputmode="decimal" value=${pattern.text} placeholder="0"
-              style=${invalid ? 'border-color:var(--bad)' : ''} onInput=${(e) => updatePattern({ text: e.target.value })} /></label>`}
+            <input class="input big" type="text" inputmode=${amountInputMode()} value=${pattern.text} placeholder="0"
+              style=${invalid ? 'border-color:var(--bad)' : ''} onInput=${(e) => updatePattern({ text: cleanTyped(e) })} /></label>`}
           <label class="field"><span>${t('item.howOften')}</span>
             <select class="input" value=${mode === 'custom' ? 'custom' : pattern.every} onChange=${(e) => chooseEvery(e.target.value)}>
               ${EVERY.map((n) => html`<option key=${n} value=${n}>${t('item.every' + n)}</option>`)}
