@@ -33,7 +33,13 @@ def tx(ref, day, amount, indicator, name="", text=""):
 
 
 class FakeBank:
+    ACCOUNTS = [
+        {"uid": "u-budget", "account_id": {"iban": "DK5000400440116243"}, "name": "Budgetkonto", "currency": "DKK"},
+        {"uid": "u-savings", "account_id": {"iban": "DK1111"}, "name": "Opsparing", "currency": "DKK"},
+    ]
+
     def __init__(self, public_key):
+        self.shared = {"u-budget", "u-savings"}  # the accounts the bank lets Jetbuddy see
         self.public_key = public_key
         self.requests = []
         self.balance = "10000.00"
@@ -66,11 +72,10 @@ class FakeBank:
             return httpx.Response(200, json={
                 "session_id": "s1",
                 "access": {"valid_until": (TODAY + timedelta(days=90)).isoformat() + "T00:00:00+00:00"},
-                "accounts": [
-                    {"uid": "u-budget", "account_id": {"iban": "DK5000400440116243"}, "name": "Budgetkonto", "currency": "DKK"},
-                    {"uid": "u-savings", "account_id": {"iban": "DK1111"}, "name": "Opsparing", "currency": "DKK"},
-                ],
+                "accounts": [a for a in self.ACCOUNTS if a["uid"] in self.shared],
             })
+        if path == "/sessions/s1" and request.method == "GET":
+            return httpx.Response(200, json={"status": "AUTHORIZED", "accounts": sorted(self.shared)})
         if path.endswith("/balances"):
             amount = self.balance if "u-budget" in path else "186000.00"
             return httpx.Response(200, json={"balances": [
@@ -165,8 +170,8 @@ def test_connect_and_sync(client, household, bank):
 def test_month_end_balances_from_bank(client, household, bank):
     main = next(a for a in household["accounts"] if a["kind"] == "main")
     connect(client)
-    budget = client.get("/api/bank/status").json()["accounts"][0]
-    client.patch(f"/api/bank/accounts/{budget['id']}", json={"account_id": main["id"]})
+    # The bank's main account took over the household's budget account.
+    assert client.get("/api/bank/status").json()["accounts"][0]["account_id"] == main["id"]
     # End of last month: today's 10000 minus today's -500 = 10500.
     y, m = LAST_MONTH_END.year, LAST_MONTH_END.month
     s = client.get(f"/api/summary/{y}").json()
@@ -184,11 +189,6 @@ def test_month_end_balances_from_bank(client, household, bank):
     s = client.get(f"/api/summary/{y}").json()
     acc = next(a for a in s["accounts"] if a["id"] == main["id"])
     assert acc["balances"][m - 1] == 1 and acc["source"][m - 1] == "manual"
-    # Unlinking removes what the bank wrote.
-    client.patch(f"/api/bank/accounts/{budget['id']}", json={"account_id": None})
-    s2 = client.get(f"/api/summary/{y2}").json()
-    acc2 = next(a for a in s2["accounts"] if a["id"] == main["id"])
-    assert acc2["source"][m2 - 1] is None
 
 
 def test_sorting_with_rules_and_actuals(client, household, bank):
@@ -245,12 +245,45 @@ def test_expired_session(client, household, bank, monkeypatch):
     assert client.get("/api/bank/status").json()["sessions"][0]["status"] == "expired"
 
 
-def test_disconnect_keeps_history(client, household, bank):
+def _accounts(client):
+    return [a["name"] for a in client.get("/api/state").json()["accounts"]]
+
+
+def test_disconnect_erases_its_accounts(client, household, bank):
     connect(client)
     client.delete("/api/bank/sessions/s1")
     status = client.get("/api/bank/status").json()
-    assert status["sessions"] == [] and len(status["accounts"]) == 2
-    assert client.get("/api/bank/transactions", params={"year": TODAY.year, "month": TODAY.month}).json()
+    assert status["sessions"] == [] and status["accounts"] == []
+    assert _accounts(client) == []
+    assert client.get("/api/bank/transactions", params={"year": TODAY.year, "month": TODAY.month}).json() == []
+
+
+def test_account_removed_upstream_is_erased_on_sync(client, household, bank):
+    connect(client)
+    assert _accounts(client) == ["Budget account", "Savings"]
+    bank.shared.discard("u-savings")  # unlinked in Enable Banking
+    client.post("/api/bank/sync")
+    assert [a["name"] for a in client.get("/api/bank/status").json()["accounts"]] == ["Budgetkonto"]
+    assert _accounts(client) == ["Budget account"]
+
+
+def test_account_removed_upstream_is_erased_on_new_login(client, household, bank):
+    connect(client)
+    bank.shared.discard("u-budget")  # not ticked at the bank this time
+    connect(client)
+    assert [a["name"] for a in client.get("/api/bank/status").json()["accounts"]] == ["Opsparing"]
+    assert _accounts(client) == ["Savings"]
+    assert client.get("/api/bank/transactions", params={"year": TODAY.year, "month": TODAY.month}).json() == []
+
+
+def test_bank_accounts_are_not_deleted_in_the_app(client, household, bank):
+    connect(client)
+    acc = client.get("/api/state").json()["accounts"][0]
+    r = client.delete(f"/api/accounts/{acc['id']}")
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "BANK_ACCOUNT"
+    # ...but can be renamed.
+    client.patch(f"/api/accounts/{acc['id']}", json={"name": "Fælles budgetkonto"})
+    assert _accounts(client)[0] == "Fælles budgetkonto"
 
 
 def test_callback_rejects_unknown_state(client, household, bank):
@@ -301,6 +334,7 @@ def test_bank_accounts_are_linked_automatically(client, household, bank):
 
     import app.banking as b
     b.TRANSPORT = httpx.MockTransport(three_accounts)
+    bank.shared.add("u-joint")
     connect(client)
     state = client.get("/api/state").json()
     names = {a["id"]: a["name"] for a in state["accounts"]}
@@ -312,19 +346,14 @@ def test_bank_accounts_are_linked_automatically(client, household, bank):
     assert [a["name"] for a in state["accounts"]] == ["Budget account", "Savings", "Fælleskonto"]
 
 
-def test_unlinked_accounts_are_linked_on_sync_unless_chosen(client, household, bank):
+def test_each_bank_account_gets_its_own_account(client, household, bank):
+    """Data from before: two bank accounts sharing one account, or one without."""
     connect(client)
-    accounts = client.get("/api/bank/status").json()["accounts"]
-    budget, savings = accounts[0], accounts[1]
-    # Someone picks "nothing" for the savings account: that sticks.
-    client.patch(f"/api/bank/accounts/{savings['id']}", json={"account_id": None})
-    # An account left unlinked from an older version gets linked on the next sync.
     from app import db
 
     conn = db.open_budget(1)
-    conn.execute("UPDATE bank_accounts SET account_id = NULL WHERE id = ?", (budget["id"],))
+    conn.execute("UPDATE bank_accounts SET account_id = (SELECT MIN(account_id) FROM bank_accounts)")
     conn.close()
     client.post("/api/bank/sync")
-    after = {a["id"]: a["account_id"] for a in client.get("/api/bank/status").json()["accounts"]}
-    assert after[budget["id"]] is not None
-    assert after[savings["id"]] is None
+    ids = [a["account_id"] for a in client.get("/api/bank/status").json()["accounts"]]
+    assert None not in ids and len(set(ids)) == 2

@@ -252,40 +252,51 @@ function Categories() {
   </${Section}>`;
 }
 
-function AccountSheet({ account, onClose }) {
+function AccountSheet({ account, bankAccount, onClose }) {
   const isNew = !account;
   const { household } = useStore();
   const hasMain = household.accounts.some((a) => a.kind === 'main' && a.id !== account?.id);
   const [form, setForm] = useState({ name: account?.name || '', kind: account?.kind || (hasMain ? 'savings' : 'main'), color: account?.color ?? household.accounts.length % 8, archived: account?.archived || false });
+  const [track, setTrack] = useState(bankAccount?.track ?? true);
   const balances = useData(account ? `/api/accounts/${account.id}/balances` : null);
   const long = monthNames('long');
   const set = (p) => setForm((f) => ({ ...f, ...p }));
-  const save = () => run(
-    () => (isNew ? api.post('/api/accounts', form) : api.patch(`/api/accounts/${account.id}`, form)),
-    () => { bump(); onClose(); },
-  );
+  const save = () => run(async () => {
+    if (isNew) await api.post('/api/accounts', form);
+    else await api.patch(`/api/accounts/${account.id}`, form);
+    if (bankAccount && track !== bankAccount.track) await api.patch(`/api/bank/accounts/${bankAccount.id}`, { track });
+  }, () => { bump(); onClose(); });
   const remove = () => {
     if (confirm(t('settings.confirmDeleteAccount', { name: account.name }))) run(() => api.del(`/api/accounts/${account.id}`), () => { bump(); onClose(); });
   };
   const clearBalance = (b) => run(() => api.put(`/api/accounts/${account.id}/balance`, { year: b.year, month: b.month, amount: null }), () => { balances.reload(); bump(); });
+  // Typed-in balances only: the bank's own are shown as the account's history elsewhere.
+  const typed = (balances.data || []).filter((b) => b.source !== 'bank');
   return html`<${Sheet} title=${isNew ? t('settings.addAccount') : account.name} onClose=${onClose}
-    footer=${html`${!isNew && html`<button class="btn ghost danger" onClick=${remove}>${t('common.delete')}</button>`}
+    footer=${html`${!isNew && !bankAccount && html`<button class="btn ghost danger" onClick=${remove}>${t('common.delete')}</button>`}
       <span class="spacer"></span><button class="btn" onClick=${onClose}>${t('common.cancel')}</button>
       <button class="btn primary" disabled=${!form.name.trim()} onClick=${save}>${t('common.save')}</button>`}>
     <div class="form-grid">
-      <label class="field"><span>${t('settings.name')}</span><input class="input" value=${form.name} onInput=${(e) => set({ name: e.target.value })} autofocus maxlength="60" /></label>
+      ${bankAccount && html`<div class="notice" style="background:var(--surface-2);margin:0">
+        <div class="row"><${Icon} name="bank" size=${18} /><strong class="spacer">${bankAccount.bank || t('bank.title')}</strong>
+          <span class="num" style="font-weight:650">${bankAccount.balance != null ? money(bankAccount.balance) : ''}</span></div>
+        <div class="small secondary">${bankAccount.name}${bankAccount.iban ? ' · ' + bankAccount.iban : ''}</div>
+        <div class="small muted" style="margin-top:4px">${t('settings.bankAccountHint')}</div></div>`}
+      <label class="field"><span>${t('settings.name')}</span><input class="input" value=${form.name} onInput=${(e) => set({ name: e.target.value })} autofocus=${isNew} maxlength="60" />
+        ${bankAccount && html`<span class="hint">${t('settings.bankNameHint', { name: bankAccount.name })}</span>`}</label>
       <div class="field"><span>${t('settings.accountType')}</span>
         <${Segmented} value=${form.kind} onChange=${(kind) => set({ kind })}
           options=${[{ value: 'main', label: t('settings.mainAccount') }, { value: 'savings', label: t('settings.savingsAccount') }]} />
         <span class="hint">${form.kind === 'main' ? t('settings.mainHint') : t('settings.savingsHint')}</span>
         ${form.kind === 'main' && hasMain && html`<span class="hint bad">${t('settings.oneMain')}</span>`}</div>
+      ${bankAccount && html`<${Switch} checked=${track} onChange=${setTrack} label=${t('bank.track')} hint=${t('bank.trackHint')} />`}
       <div class="field"><span>${t('common.color')}</span><${Swatches} value=${form.color} onChange=${(color) => set({ color })} /></div>
       ${!isNew && html`<${Switch} checked=${form.archived} onChange=${(archived) => set({ archived })} label=${t('settings.archived')} hint=${t('settings.accountArchivedHint')} />`}
-      ${!isNew && html`<div class="field"><span>${t('settings.actualBalances')}</span>
+      ${!isNew && !bankAccount && html`<div class="field"><span>${t('settings.actualBalances')}</span>
         <span class="hint">${t('settings.actualBalancesHint')}</span>
-        ${balances.data?.length ? html`<div class="list" style="border:1px solid var(--border);border-radius:12px">
-          ${balances.data.map((b) => html`<div class="list-row" key=${b.year + '-' + b.month} style="min-height:44px">
-            <div class="main-col" style="text-transform:capitalize">${long[b.month - 1]} ${b.year}${b.source === 'bank' ? html` <span class="badge accent" style="text-transform:none">${t('month.fromBank')}</span>` : ''}</div>
+        ${typed.length ? html`<div class="list" style="border:1px solid var(--border);border-radius:12px">
+          ${typed.map((b) => html`<div class="list-row" key=${b.year + '-' + b.month} style="min-height:44px">
+            <div class="main-col" style="text-transform:capitalize">${long[b.month - 1]} ${b.year}</div>
             <span class="amount">${money(b.amount)}</span>
             <button class="btn ghost icon small" onClick=${() => clearBalance(b)} aria-label=${t('common.delete')}><${Icon} name="close" size=${16} /></button>
           </div>`)}</div>` : html`<span class="small muted">${t('settings.noBalances')}</span>`}
@@ -296,17 +307,24 @@ function AccountSheet({ account, onClose }) {
 
 function Accounts() {
   const { household } = useStore();
+  const bank = useData('/api/bank/status');
   const [editing, setEditing] = useState(null);
+  const bankOf = (id) => (bank.data?.accounts || []).find((b) => b.account_id === id);
   return html`<${Section} title=${t('settings.accounts')} icon="wallet">
     <p class="small secondary" style="margin:0;padding:0 16px 8px">${t('settings.accountsHint')}</p>
-    <div class="list">${household.accounts.map((a) => html`<div class="list-row tap" key=${a.id} onClick=${() => setEditing({ account: a })}>
-      <${Dot} color=${seriesColor(a.color)} size=${12} />
-      <div class="main-col"><div class="name">${a.name}</div>
-        <div class="meta">${a.kind === 'main' ? t('settings.mainAccount') : t('settings.savingsAccount')}${a.archived ? ' · ' + t('settings.archived') : ''}</div></div>
-      <${Icon} name="right" size=${18} />
-    </div>`)}</div>
-    <button class="add-row" onClick=${() => setEditing({})}><${Icon} name="plus" size=${18} />${t('settings.addAccount')}</button>
-    ${editing && html`<${AccountSheet} account=${editing.account} onClose=${() => setEditing(null)} />`}
+    <div class="list">${household.accounts.map((a) => {
+      const b = bankOf(a.id);
+      const kind = a.kind === 'main' ? t('settings.mainAccount') : t('settings.savingsAccount');
+      return html`<div class="list-row tap" key=${a.id} onClick=${() => setEditing({ account: a, bankAccount: b })}>
+        <${Dot} color=${seriesColor(a.color)} size=${12} />
+        <div class="main-col"><div class="name">${a.name}</div>
+          <div class="meta">${b ? html`<${Icon} name="bank" size=${12} /> ${b.bank || ''}${b.name !== a.name ? ' · ' + b.name : ''}` : t('settings.manualAccount')} · ${kind}${a.archived ? ' · ' + t('settings.archived') : ''}</div></div>
+        ${b?.balance != null && html`<span class="num small" style="font-weight:650">${money(b.balance)}</span>`}
+        <${Icon} name="right" size=${18} />
+      </div>`;
+    })}</div>
+    <button class="add-row" onClick=${() => setEditing({})}><${Icon} name="plus" size=${18} />${t('settings.addManualAccount')}</button>
+    ${editing && html`<${AccountSheet} account=${editing.account} bankAccount=${editing.bankAccount} onClose=${() => { setEditing(null); bank.reload(); }} />`}
   </${Section}>`;
 }
 

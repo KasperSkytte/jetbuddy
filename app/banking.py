@@ -233,6 +233,9 @@ class EnableBanking:
     def create_session(self, code: str) -> dict:
         return self.request("POST", "/sessions", json={"code": code})
 
+    def get_session(self, session_id: str) -> dict:
+        return self.request("GET", f"/sessions/{session_id}")
+
     def delete_session(self, session_id: str) -> None:
         self.request("DELETE", f"/sessions/{session_id}")
 
@@ -380,16 +383,24 @@ def connect_finish(conn: sqlite3.Connection, bdir: Path, code: str, state: str) 
     session = client(bdir).create_session(code)
     with db.transaction(conn):
         conn.execute("DELETE FROM bank_pending WHERE state = ?", (state,))
+        # Earlier logins to the same bank: their accounts are checked against this one's below.
+        earlier = [r[0] for r in conn.execute(
+            "SELECT id FROM bank_sessions WHERE aspsp_name = ? AND aspsp_country = ?", (pending["aspsp_name"], pending["aspsp_country"])
+        )]
+        # Updated in place: replacing the row would cut its accounts loose.
         conn.execute(
-            "INSERT OR REPLACE INTO bank_sessions (id, aspsp_name, aspsp_country, valid_until, psu_headers, status, created) "
-            "VALUES (?, ?, ?, ?, ?, 'active', ?)",
+            "INSERT INTO bank_sessions (id, aspsp_name, aspsp_country, valid_until, psu_headers, status, created) "
+            "VALUES (?, ?, ?, ?, ?, 'active', ?) ON CONFLICT (id) DO UPDATE SET valid_until = excluded.valid_until, "
+            "psu_headers = excluded.psu_headers, status = 'active', last_error = NULL",
             (
                 session["session_id"], pending["aspsp_name"], pending["aspsp_country"],
                 (session.get("access") or {}).get("valid_until") or "", pending["psu_headers"], int(time.time()),
             ),
         )
+        idents = []
         for acc in session.get("accounts") or []:
             ident = _account_ident(acc)
+            idents.append(ident)
             iban = (acc.get("account_id") or {}).get("iban")
             name = acc.get("name") or acc.get("product") or iban or "Account"
             # Logging in to the same bank again keeps each account's links and history.
@@ -399,7 +410,17 @@ def connect_finish(conn: sqlite3.Connection, bdir: Path, code: str, state: str) 
                 "name = excluded.name, iban = excluded.iban, currency = excluded.currency",
                 (session["session_id"], acc["uid"], ident, name, iban, acc.get("currency")),
             )
-        link_accounts(conn)
+        # Logging in to the same bank again: an account it no longer shares was
+        # removed at the bank or in Enable Banking, so it goes here too.
+        sessions = list({*earlier, session["session_id"]})
+        gone = conn.execute(
+            f"SELECT id FROM bank_accounts WHERE session_id IN ({','.join('?' * len(sessions))}) "
+            f"AND ident NOT IN ({','.join('?' * len(idents))})",
+            (*sessions, *idents),
+        ).fetchall()
+        for row in gone:
+            remove_bank_account(conn, row[0])
+        ensure_accounts(conn)
         # A session that no longer has accounts was replaced by this one.
         conn.execute(
             "DELETE FROM bank_sessions WHERE id != ? AND id NOT IN (SELECT session_id FROM bank_accounts WHERE session_id IS NOT NULL)",
@@ -411,17 +432,26 @@ def connect_finish(conn: sqlite3.Connection, bdir: Path, code: str, state: str) 
 _SAVINGS = re.compile(r"opspar|spare|savings|saving|sparkonto|børneopsparing", re.IGNORECASE)
 
 
-def link_accounts(conn: sqlite3.Connection) -> None:
-    """Give every new bank account a Jetbuddy account, so balances show up
-    without any setting up: the account with the same name, else a free
-    budget or savings account of the right kind, else a new one. Savings
-    accounts follow the balance only; their transactions are transfers in."""
-    accounts = [dict(r) for r in conn.execute("SELECT * FROM accounts WHERE archived = 0 ORDER BY sort, id")]
-    taken = {r[0] for r in conn.execute("SELECT account_id FROM bank_accounts WHERE account_id IS NOT NULL")}
-    for ba in conn.execute("SELECT * FROM bank_accounts WHERE account_id IS NULL AND link_chosen = 0 ORDER BY id").fetchall():
+def ensure_accounts(conn: sqlite3.Connection) -> None:
+    """Every bank account is an account in Jetbuddy, its own one: the bank
+    decides which accounts there are, and the person names them. A new bank
+    account takes over a manual account with the same name, or the free
+    budget or savings account of its kind (the ones set up with the
+    household), or else becomes a new account named like at the bank.
+    Savings accounts follow the balance only; their transactions are
+    transfers in."""
+    accounts = [dict(r) for r in conn.execute("SELECT * FROM accounts ORDER BY sort, id")]
+    linked: set[int] = set()
+    todo = []
+    for ba in conn.execute("SELECT * FROM bank_accounts ORDER BY id").fetchall():
+        if ba["account_id"] is not None and ba["account_id"] not in linked and any(a["id"] == ba["account_id"] for a in accounts):
+            linked.add(ba["account_id"])
+        else:
+            todo.append(ba)  # new, or sharing an account with another bank account
+    for ba in todo:
         name = (ba["name"] or "").strip()
         savings = bool(_SAVINGS.search(name))
-        free = [a for a in accounts if a["id"] not in taken]
+        free = [a for a in accounts if a["id"] not in linked and not a["archived"]]
         match = next((a for a in free if a["name"].strip().lower() == name.lower()), None)
         if match is None:
             match = next((a for a in free if a["kind"] == ("savings" if savings else "main")), None)
@@ -432,20 +462,32 @@ def link_accounts(conn: sqlite3.Connection) -> None:
                 "INSERT INTO accounts (name, kind, color, sort) VALUES (?, ?, ?, (SELECT COALESCE(MAX(sort), -1) + 1 FROM accounts))",
                 (name or "Bank", kind, len(accounts) % 8),
             )
-            match = {"id": cur.lastrowid, "name": name, "kind": kind}
+            match = {"id": cur.lastrowid, "name": name, "kind": kind, "archived": 0}
             accounts.append(match)
-        taken.add(match["id"])
-        track = 0 if savings or (match["kind"] == "savings" and _SAVINGS.search(match["name"])) else 1
+        linked.add(match["id"])
+        track = 0 if savings else 1
         conn.execute("UPDATE bank_accounts SET account_id = ?, track = ? WHERE id = ?", (match["id"], track, ba["id"]))
 
 
+def remove_bank_account(conn: sqlite3.Connection, bank_account_id: int) -> None:
+    """Erase a bank account that is gone upstream: its transactions, and the
+    account in Jetbuddy with its balances. Items that moved money to it keep
+    their amounts but no longer point at an account."""
+    row = conn.execute("SELECT account_id FROM bank_accounts WHERE id = ?", (bank_account_id,)).fetchone()
+    conn.execute("DELETE FROM bank_accounts WHERE id = ?", (bank_account_id,))  # transactions go with it
+    if row and row[0] is not None:
+        conn.execute("DELETE FROM accounts WHERE id = ?", (row[0],))  # balances go with it
+
+
 def disconnect(conn: sqlite3.Connection, bdir: Path, session_id: str) -> None:
+    """Remove a bank connection, and with it its accounts and their data."""
     try:
         client(bdir).delete_session(session_id)
     except BankError:
         pass  # already gone at the bank's end; forget it here anyway
     with db.transaction(conn):
-        conn.execute("UPDATE bank_accounts SET session_id = NULL WHERE session_id = ?", (session_id,))
+        for row in conn.execute("SELECT id FROM bank_accounts WHERE session_id = ?", (session_id,)).fetchall():
+            remove_bank_account(conn, row[0])
         conn.execute("DELETE FROM bank_sessions WHERE id = ?", (session_id,))
 
 
@@ -570,9 +612,8 @@ def sync(conn: sqlite3.Connection, bdir: Path, psu: dict | None = None) -> dict:
 
 def _sync(conn: sqlite3.Connection, bdir: Path, psu: dict | None) -> dict:
     eb = client(bdir)
-    # Accounts connected before automatic linking existed, or never linked.
     with db.transaction(conn):
-        link_accounts(conn)
+        ensure_accounts(conn)
     new_ids: list[int] = []
     errors: list[str] = []
     now = datetime.now(timezone.utc)
@@ -588,10 +629,32 @@ def _sync(conn: sqlite3.Connection, bdir: Path, psu: dict | None) -> dict:
             pass
         headers = _psu_for(session, psu)
         error = None
+        try:
+            info = eb.get_session(session["id"])
+        except BankError as e:
+            if e.code in SESSION_GONE or e.status in (401, 404):
+                conn.execute("UPDATE bank_sessions SET status = 'expired' WHERE id = ?", (session["id"],))
+                continue
+            info = None  # couldn't ask; sync what we have
+        if info is not None:
+            if info.get("status") not in (None, "AUTHORIZED"):
+                conn.execute("UPDATE bank_sessions SET status = 'expired' WHERE id = ?", (session["id"],))
+                continue
+            # Accounts the bank no longer shares were removed upstream: erase them.
+            shared = set(info.get("accounts") or [])
+            if shared:
+                with db.transaction(conn):
+                    for ba in conn.execute("SELECT id, uid FROM bank_accounts WHERE session_id = ?", (session["id"],)).fetchall():
+                        if ba["uid"] not in shared:
+                            remove_bank_account(conn, ba["id"])
         for ba in conn.execute("SELECT * FROM bank_accounts WHERE session_id = ?", (session["id"],)).fetchall():
             try:
                 new_ids += _sync_account(conn, eb, ba, headers)
             except BankError as e:
+                if e.code == "ACCOUNT_DOES_NOT_EXIST":
+                    with db.transaction(conn):
+                        remove_bank_account(conn, ba["id"])
+                    continue
                 error = f"{ba['name']}: {e}"
                 if e.code in SESSION_GONE or e.status == 401:
                     conn.execute("UPDATE bank_sessions SET status = 'expired' WHERE id = ?", (session["id"],))

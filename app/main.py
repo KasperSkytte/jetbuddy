@@ -71,7 +71,10 @@ async def _bank_sync_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     for budget_id in budget_ids():  # brings every budget's database up to date
-        db.open_budget(budget_id).close()
+        conn = db.open_budget(budget_id)
+        with db.transaction(conn):
+            banking.ensure_accounts(conn)  # one account per bank account, also for data from before
+        conn.close()
     task = asyncio.create_task(_bank_sync_loop())
     yield
     task.cancel()
@@ -599,6 +602,8 @@ def update_account(id: int, body: AccountIn, conn: sqlite3.Connection = Conn):
 
 @app.delete("/api/accounts/{id}")
 def delete_account(id: int, conn: sqlite3.Connection = Conn):
+    if conn.execute("SELECT 1 FROM bank_accounts WHERE account_id = ?", (id,)).fetchone():
+        raise AppError(409, "BANK_ACCOUNT", "this account comes from the bank; remove it there or in Enable Banking")
     conn.execute("DELETE FROM accounts WHERE id = ?", (id,))
     return {"ok": True}
 
@@ -1078,8 +1083,8 @@ def bank_status(request: Request, conn: sqlite3.Connection = Conn):
     config = banking.get_config(bdir)
     sessions = rows(conn.execute("SELECT id, aspsp_name, aspsp_country, valid_until, status, last_sync, last_error FROM bank_sessions ORDER BY created"))
     accounts = rows(conn.execute(
-        "SELECT id, session_id, name, iban, currency, account_id, track, balance_cents, balance_date, history_from, synced_to "
-        "FROM bank_accounts ORDER BY id"
+        "SELECT b.id, b.session_id, b.name, b.iban, b.currency, b.account_id, b.track, b.balance_cents, b.balance_date, "
+        "b.history_from, b.synced_to, s.aspsp_name AS bank FROM bank_accounts b LEFT JOIN bank_sessions s ON s.id = b.session_id ORDER BY b.id"
     ))
     for a in accounts:
         a["balance"] = db.from_cents(a.pop("balance_cents"))
@@ -1195,24 +1200,14 @@ def bank_disconnect(id: str, request: Request, conn: sqlite3.Connection = Conn):
 
 
 class BankAccountIn(BaseModel):
-    account_id: int | None = None
-    track: bool | None = None
+    track: bool
 
 
 @app.patch("/api/bank/accounts/{id}")
 def bank_account_update(id: int, body: BankAccountIn, conn: sqlite3.Connection = Conn):
-    current = one(conn, "SELECT * FROM bank_accounts WHERE id = ?", (id,))
-    with db.transaction(conn):
-        if "account_id" in body.model_fields_set:
-            if body.account_id is not None:
-                one(conn, "SELECT id FROM accounts WHERE id = ?", (body.account_id,))
-            conn.execute("UPDATE bank_accounts SET account_id = ?, link_chosen = 1 WHERE id = ?", (body.account_id, id))
-            # Balances the bank gave the old account no longer apply.
-            if current["account_id"] is not None and current["account_id"] != body.account_id:
-                conn.execute("DELETE FROM account_balances WHERE account_id = ? AND source = 'bank'", (current["account_id"],))
-        if body.track is not None:
-            conn.execute("UPDATE bank_accounts SET track = ? WHERE id = ?", (int(body.track), id))
-        banking.update_month_balances(conn)
+    """Whether this bank account's transactions are used in the budget."""
+    one(conn, "SELECT id FROM bank_accounts WHERE id = ?", (id,))
+    conn.execute("UPDATE bank_accounts SET track = ? WHERE id = ?", (int(body.track), id))
     return {"ok": True}
 
 

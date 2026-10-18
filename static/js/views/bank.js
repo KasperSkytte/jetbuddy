@@ -2,7 +2,7 @@
 // transactions that come in onto budget items.
 import { html, useState, useEffect } from '../lib.js';
 import { api } from '../api.js';
-import { useStore, useData, bump } from '../store.js';
+import { useStore, useData, bump, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
 import { money, amount, monthNames } from '../fmt.js';
 import { Sheet, Switch, Icon, Dot, Empty, seriesColor, toast, toastError, errorText } from '../ui.js';
@@ -248,7 +248,10 @@ export function BankSettings() {
   useEffect(() => {
     const q = new URLSearchParams(location.hash.split('?')[1] || '');
     if (!q.get('bank')) return;
-    if (q.get('bank') === 'connected') toast(t('bank.connected', { n: q.get('new') || 0 }));
+    if (q.get('bank') === 'connected') {
+      toast(t('bank.connected', { n: q.get('new') || 0 }));
+      reloadHousehold();
+    }
     else toast(t('bank.connectFailed', { message: errorText({ code: q.get('code'), message: q.get('message') || '' }) }), { error: true });
     history.replaceState(null, '', '#/settings');
     bump();
@@ -261,6 +264,7 @@ export function BankSettings() {
       const r = await api.post('/api/bank/sync');
       if (r.errors.length) toast(r.errors.join('\n'), { error: true });
       else toast(t('bank.synced', { n: r.new }));
+      await reloadHousehold(); // accounts removed at the bank are gone now
       bump();
     } catch (e) {
       toastError(e);
@@ -272,14 +276,7 @@ export function BankSettings() {
     if (!confirm(t('bank.confirmDisconnect', { name: session.aspsp_name }))) return;
     try {
       await api.del(`/api/bank/sessions/${session.id}`);
-      bump();
-    } catch (e) {
-      toastError(e);
-    }
-  };
-  const updateAccount = async (id, patch) => {
-    try {
-      await api.patch(`/api/bank/accounts/${id}`, patch);
+      await reloadHousehold();
       bump();
     } catch (e) {
       toastError(e);
@@ -322,16 +319,8 @@ export function BankSettings() {
             <button class=${'btn small' + (expired || left < 14 ? ' primary' : '')} onClick=${() => setPicker({ preset: { name: session.aspsp_name, country: session.aspsp_country } })}>${t('bank.renew')}</button>
             <button class="btn small ghost danger" onClick=${() => disconnect(session)}>${t('bank.disconnect')}</button>
           </div>
-          ${accounts.map((a) => html`<div key=${a.id} class="bank-account">
-            <div class="row"><strong class="spacer ellipsis">${a.name}</strong><span class="num" style="font-weight:650">${a.balance != null ? money(a.balance) : '–'}</span></div>
-            ${a.iban && html`<div class="small muted">${a.iban}</div>`}
-            <label class="field" style="margin-top:8px"><span>${t('bank.followsAccount')}</span>
-              <select class="input" value=${a.account_id ?? ''} onChange=${(e) => updateAccount(a.id, { account_id: e.target.value ? Number(e.target.value) : null })}>
-                <option value="">${t('bank.noAccount')}</option>
-                ${household.accounts.filter((x) => !x.archived).map((x) => html`<option key=${x.id} value=${x.id}>${x.name}</option>`)}
-              </select></label>
-            <${Switch} checked=${a.track} onChange=${(track) => updateAccount(a.id, { track })} label=${t('bank.track')} hint=${t('bank.trackHint')} />
-          </div>`)}
+          ${accounts.length > 0 && html`<p class="small secondary" style="margin:0;padding:0 16px 12px">
+            ${t('bank.sessionAccounts', { n: accounts.length, names: accounts.map((a) => household.accounts.find((x) => x.id === a.account_id)?.name || a.name).join(', ') })}</p>`}
         </div>`;
       })}
       ${s.sessions.length > 0 && html`<button class="add-row" onClick=${() => setPicker({})}><${Icon} name="plus" size=${18} />${t('bank.connectAnother')}</button>
