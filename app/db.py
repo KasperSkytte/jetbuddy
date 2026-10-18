@@ -1,4 +1,13 @@
-"""SQLite storage. One file, one household. Money is stored as integer cents."""
+"""SQLite storage. Money is stored as integer cents.
+
+One server can hold several budgets (households), each with its own login.
+A small server database lists the budgets; every budget has a folder of its
+own with its database and its bank key, so budgets never see each other.
+
+    data/jetbuddy.db                  the budgets and their logins
+    data/budgets/<id>/budget.db       one budget
+    data/budgets/<id>/enablebanking.* its bank connection key, if any
+"""
 
 import os
 import sqlite3
@@ -6,10 +15,21 @@ from contextlib import contextmanager
 from pathlib import Path
 
 DATA_DIR = Path(os.environ.get("JETBUDDY_DATA_DIR", "./data"))
-DB_PATH = DATA_DIR / "jetbuddy.db"
 
 # Each entry migrates the schema from version i to i+1. Never edit a released
 # migration; append a new one.
+SERVER_MIGRATIONS = [
+    """
+    CREATE TABLE budgets (
+        id            INTEGER PRIMARY KEY,
+        name          TEXT NOT NULL,
+        login         TEXT NOT NULL UNIQUE,  -- lower case
+        password_hash TEXT NOT NULL,
+        created       INTEGER NOT NULL
+    );
+    """,
+]
+
 MIGRATIONS = [
     """
     CREATE TABLE settings (
@@ -141,8 +161,7 @@ MIGRATIONS = [
 ]
 
 
-def connect(path: Path | None = None) -> sqlite3.Connection:
-    path = path or DB_PATH
+def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Autocommit mode: writes that need atomicity use transaction() below.
     conn = sqlite3.connect(path, timeout=10, isolation_level=None, check_same_thread=False)
@@ -153,10 +172,26 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
-def migrate(conn: sqlite3.Connection) -> None:
+def migrate(conn: sqlite3.Connection, migrations: list[str] = MIGRATIONS) -> None:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    for i, script in enumerate(MIGRATIONS[version:], start=version):
+    for i, script in enumerate(migrations[version:], start=version):
         conn.executescript(f"BEGIN; {script}\nPRAGMA user_version = {i + 1}; COMMIT;")
+
+
+def budget_dir(budget_id: int) -> Path:
+    return DATA_DIR / "budgets" / str(budget_id)
+
+
+def open_server() -> sqlite3.Connection:
+    conn = connect(DATA_DIR / "jetbuddy.db")
+    migrate(conn, SERVER_MIGRATIONS)
+    return conn
+
+
+def open_budget(budget_id: int) -> sqlite3.Connection:
+    conn = connect(budget_dir(budget_id) / "budget.db")
+    migrate(conn)
+    return conn
 
 
 @contextmanager

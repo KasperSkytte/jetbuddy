@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import os
+import shutil
 import sqlite3
 import time
 from contextlib import asynccontextmanager
@@ -18,6 +19,7 @@ from pydantic import BaseModel, Field
 from urllib.parse import quote
 
 from . import __version__, auth, banking, calc, db, importer
+from . import export_xlsx as export_workbook
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 Kind = Literal["income", "expense"]
@@ -28,14 +30,25 @@ MAX_IMPORT_BYTES = 10 * 1024 * 1024
 log = logging.getLogger("jetbuddy")
 
 
-def _scheduled_sync() -> None:
-    conn = db.connect()
+def budget_ids() -> list[int]:
+    server = db.open_server()
     try:
-        if banking.due_for_sync(conn):
-            result = banking.sync(conn)
-            log.info("bank sync: %s", result)
+        return [r[0] for r in server.execute("SELECT id FROM budgets")]
     finally:
-        conn.close()
+        server.close()
+
+
+def _scheduled_sync() -> None:
+    for budget_id in budget_ids():
+        conn = db.open_budget(budget_id)
+        try:
+            if banking.due_for_sync(conn, db.budget_dir(budget_id)):
+                result = banking.sync(conn, db.budget_dir(budget_id))
+                log.info("bank sync of budget %s: %s", budget_id, result)
+        except Exception:
+            log.exception("bank sync of budget %s failed", budget_id)
+        finally:
+            conn.close()
 
 
 async def _bank_sync_loop() -> None:
@@ -50,9 +63,8 @@ async def _bank_sync_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    conn = db.connect()
-    db.migrate(conn)
-    conn.close()
+    for budget_id in budget_ids():  # brings every budget's database up to date
+        db.open_budget(budget_id).close()
     task = asyncio.create_task(_bank_sync_loop())
     yield
     task.cancel()
@@ -63,8 +75,9 @@ app = FastAPI(
 )
 
 
-def get_conn():
-    conn = db.connect()
+def get_conn(request: Request):
+    """The logged-in budget's database."""
+    conn = db.open_budget(request.state.budget_id)
     try:
         yield conn
     finally:
@@ -74,19 +87,30 @@ def get_conn():
 Conn = Depends(get_conn)
 
 
+def budget_dir(request: Request) -> Path:
+    return db.budget_dir(request.state.budget_id)
+
+
 @app.exception_handler(banking.BankError)
 async def bank_error(request: Request, exc: banking.BankError):
     status = 400 if exc.code in ("NOT_CONFIGURED", "UNKNOWN_STATE") else 502
     return JSONResponse({"detail": str(exc), "code": exc.code}, status_code=status)
 
 
+OPEN_PATHS = {"/api/session", "/api/login", "/api/logout", "/api/health", "/api/budgets"}
+
+
 @app.middleware("http")
 async def require_login(request: Request, call_next):
+    """Every API call works on the budget the session cookie belongs to."""
     path = request.url.path
-    open_paths = ("/api/session", "/api/login", "/api/logout", "/api/health")
-    if auth.password() and path.startswith("/api/") and path not in open_paths:
-        if not auth.valid_token(request.cookies.get(auth.COOKIE)):
+    if path.startswith("/api/") and path not in OPEN_PATHS:
+        budget_id = auth.budget_from_token(request.cookies.get(auth.COOKIE))
+        if budget_id is None:
+            if path == "/api/bank/callback":  # a browser coming back from the bank
+                return RedirectResponse("/", status_code=303)
             return JSONResponse({"detail": "login required"}, status_code=401)
+        request.state.budget_id = budget_id
     response = await call_next(request)
     if path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
@@ -160,7 +184,8 @@ def item_out(item: dict, amounts: list[int | None], prev: list[int | None], actu
 
 
 class LoginIn(BaseModel):
-    password: str
+    login: str = Field(max_length=200)
+    password: str = Field(max_length=200)
 
 
 @app.get("/api/health")
@@ -168,34 +193,117 @@ def health():
     return {"ok": True, "version": __version__}
 
 
-@app.get("/api/session")
-def session(request: Request):
-    required = bool(auth.password())
-    return {
-        "auth_required": required,
-        "logged_in": not required or auth.valid_token(request.cookies.get(auth.COOKIE)),
-    }
+def _login_name(login: str) -> str:
+    login = login.strip().lower()
+    if len(login) < 2 or any(ch.isspace() for ch in login):
+        raise HTTPException(422, "the username must be at least 2 characters, without spaces")
+    return login
 
 
-@app.post("/api/login")
-def login(body: LoginIn, request: Request, response: Response):
-    if not auth.check_password(body.password):
-        time.sleep(1)  # slows down guessing
-        raise HTTPException(401, "wrong password")
+def _set_session(request: Request, response: Response, budget_id: int, password_hash: str) -> None:
     secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(
         auth.COOKIE,
-        auth.make_token(),
+        auth.make_token(budget_id, password_hash),
         max_age=auth.SESSION_SECONDS,
         httponly=True,
         samesite="lax",
         secure=secure,
     )
+
+
+def _check_password(request: Request, row, password: str) -> None:
+    client = request.client.host if request.client else "?"
+    if auth.too_many_failures(client):
+        raise HTTPException(429, "too many attempts, try again in 15 minutes")
+    if row is None:
+        auth.burn_time(password)
+    if row is None or not auth.verify_password(password, row["password_hash"]):
+        auth.record_failure(client)
+        time.sleep(1)
+        raise HTTPException(401, "wrong username or password")
+
+
+@app.get("/api/session")
+def session(request: Request):
+    budget_id = auth.budget_from_token(request.cookies.get(auth.COOKIE))
+    server = db.open_server()
+    try:
+        count = server.execute("SELECT COUNT(*) FROM budgets").fetchone()[0]
+        budget = server.execute("SELECT id, name, login FROM budgets WHERE id = ?", (budget_id,)).fetchone()
+    finally:
+        server.close()
+    return {
+        "logged_in": budget is not None,
+        "budget": dict(budget) if budget else None,
+        "has_budgets": count > 0,
+        "can_create": count == 0 or auth.allow_new_budgets(),
+    }
+
+
+@app.post("/api/login")
+def login(body: LoginIn, request: Request, response: Response):
+    server = db.open_server()
+    try:
+        row = server.execute("SELECT * FROM budgets WHERE login = ?", (body.login.strip().lower(),)).fetchone()
+    finally:
+        server.close()
+    _check_password(request, row, body.password)
+    _set_session(request, response, row["id"], row["password_hash"])
     return {"ok": True}
 
 
 @app.post("/api/logout")
 def logout(response: Response):
+    response.delete_cookie(auth.COOKIE)
+    return {"ok": True}
+
+
+class LoginDetailsIn(BaseModel):
+    current_password: str = Field(max_length=200)
+    login: str | None = Field(None, max_length=60)
+    password: str | None = Field(None, min_length=auth.MIN_PASSWORD, max_length=200)
+
+
+@app.put("/api/login-details")
+def change_login_details(body: LoginDetailsIn, request: Request, response: Response):
+    """Change the budget's username or password. Other devices are logged out
+    by a new password; this one stays logged in."""
+    server = db.open_server()
+    try:
+        row = server.execute("SELECT * FROM budgets WHERE id = ?", (request.state.budget_id,)).fetchone()
+        _check_password(request, row, body.current_password)
+        password_hash = row["password_hash"]
+        with db.transaction(server):
+            if body.login is not None:
+                login = _login_name(body.login)
+                taken = server.execute("SELECT 1 FROM budgets WHERE login = ? AND id != ?", (login, row["id"])).fetchone()
+                if taken:
+                    raise HTTPException(409, "that username is taken")
+                server.execute("UPDATE budgets SET login = ? WHERE id = ?", (login, row["id"]))
+            if body.password is not None:
+                password_hash = auth.hash_password(body.password)
+                server.execute("UPDATE budgets SET password_hash = ? WHERE id = ?", (password_hash, row["id"]))
+    finally:
+        server.close()
+    _set_session(request, response, row["id"], password_hash)
+    return {"ok": True}
+
+
+class DeleteBudgetIn(BaseModel):
+    password: str = Field(max_length=200)
+
+
+@app.post("/api/budget/delete")
+def delete_budget(body: DeleteBudgetIn, request: Request, response: Response):
+    server = db.open_server()
+    try:
+        row = server.execute("SELECT * FROM budgets WHERE id = ?", (request.state.budget_id,)).fetchone()
+        _check_password(request, row, body.password)
+        server.execute("DELETE FROM budgets WHERE id = ?", (row["id"],))
+    finally:
+        server.close()
+    shutil.rmtree(db.budget_dir(row["id"]), ignore_errors=True)
     response.delete_cookie(auth.COOKIE)
     return {"ok": True}
 
@@ -260,10 +368,40 @@ def state(conn: sqlite3.Connection = Conn):
     }
 
 
-@app.post("/api/setup")
-def setup(body: SetupIn, conn: sqlite3.Connection = Conn):
-    if conn.execute("SELECT 1 FROM members").fetchone():
-        raise HTTPException(409, "already set up")
+class NewBudgetIn(SetupIn):
+    login: str = Field(max_length=60)
+    password: str = Field(min_length=auth.MIN_PASSWORD, max_length=200)
+
+
+@app.post("/api/budgets")
+def create_budget(body: NewBudgetIn, request: Request, response: Response):
+    """Create a budget with its login, set it up, and log in to it."""
+    login = _login_name(body.login)
+    password_hash = auth.hash_password(body.password)
+    server = db.open_server()
+    try:
+        count = server.execute("SELECT COUNT(*) FROM budgets").fetchone()[0]
+        if count and not auth.allow_new_budgets():
+            raise HTTPException(403, "new budgets are turned off on this server")
+        if server.execute("SELECT 1 FROM budgets WHERE login = ?", (login,)).fetchone():
+            raise HTTPException(409, "that username is taken")
+        budget_id = server.execute(
+            "INSERT INTO budgets (name, login, password_hash, created) VALUES (?, ?, ?, ?)",
+            (body.household.strip(), login, password_hash, int(time.time())),
+        ).lastrowid
+    finally:
+        server.close()
+    conn = db.open_budget(budget_id)
+    try:
+        _setup_household(conn, body)
+        out = state(conn)
+    finally:
+        conn.close()
+    _set_session(request, response, budget_id, password_hash)
+    return out
+
+
+def _setup_household(conn: sqlite3.Connection, body: SetupIn) -> None:
     lang = body.language if body.language in DEFAULT_CATEGORIES else "en"
     with db.transaction(conn):
         set_settings(
@@ -288,7 +426,6 @@ def setup(body: SetupIn, conn: sqlite3.Connection = Conn):
                 "INSERT INTO accounts (name, kind, color, sort) VALUES (?, ?, ?, ?)",
                 [(n, k, i, i) for i, (n, k) in enumerate(DEFAULT_ACCOUNTS[lang])],
             )
-    return state(conn)
 
 
 class SettingsIn(BaseModel):
@@ -299,9 +436,15 @@ class SettingsIn(BaseModel):
 
 
 @app.put("/api/settings")
-def update_settings(body: SettingsIn, conn: sqlite3.Connection = Conn):
+def update_settings(body: SettingsIn, request: Request, conn: sqlite3.Connection = Conn):
     with db.transaction(conn):
         set_settings(conn, body.model_dump(exclude_none=True))
+    if body.household:
+        server = db.open_server()
+        try:
+            server.execute("UPDATE budgets SET name = ? WHERE id = ?", (body.household.strip(), request.state.budget_id))
+        finally:
+            server.close()
     return get_settings(conn)
 
 
@@ -718,31 +861,14 @@ async def restore(request: Request, conn: sqlite3.Connection = Conn):
     return {"ok": True}
 
 
-@app.get("/api/export/{year}.csv")
-def export_csv(year: int, conn: sqlite3.Connection = Conn):
-    members = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM members")}
-    categories = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM categories")}
-    amounts = calc.year_amounts(conn, year)
-    ids = calc.visible_item_ids(conn, year)
-    buf = io.StringIO()
-    w = csv.writer(buf)
-    w.writerow(["member", "type", "item", "category", *[str(m) for m in range(1, 13)], "total"])
-    if ids:
-        for i in conn.execute(
-            f"SELECT * FROM items WHERE id IN ({','.join('?' * len(ids))}) ORDER BY member_id, kind, sort, id", ids
-        ):
-            values = amounts.get(i["id"], [None] * 12)
-            w.writerow(
-                [
-                    members.get(i["member_id"], ""), i["kind"], i["name"], categories.get(i["category_id"], ""),
-                    *["" if v is None else f"{v / 100:.2f}" for v in values],
-                    f"{sum(v or 0 for v in values) / 100:.2f}",
-                ]
-            )
-    return StreamingResponse(
-        iter([buf.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="jetbuddy-{year}.csv"'},
+@app.get("/api/export/{year}.xlsx")
+def export_xlsx(year: int, group: Literal["auto", "category", "member"] = "auto", conn: sqlite3.Connection = Conn):
+    """The year's budget as an Excel workbook, e.g. for the bank."""
+    data, filename = export_workbook.build(conn, year, group)
+    return Response(
+        data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=\"budget-{year}.xlsx\"; filename*=UTF-8''{quote(filename)}"},
     )
 
 
@@ -833,7 +959,8 @@ def _psu_headers(request: Request) -> dict:
 
 @app.get("/api/bank/status")
 def bank_status(request: Request, conn: sqlite3.Connection = Conn):
-    config = banking.get_config()
+    bdir = budget_dir(request)
+    config = banking.get_config(bdir)
     sessions = rows(conn.execute("SELECT id, aspsp_name, aspsp_country, valid_until, status, last_sync, last_error FROM bank_sessions ORDER BY created"))
     accounts = rows(conn.execute(
         "SELECT id, session_id, name, iban, currency, account_id, track, balance_cents, balance_date, history_from, synced_to "
@@ -853,8 +980,10 @@ def bank_status(request: Request, conn: sqlite3.Connection = Conn):
     ).fetchall()
     return {
         "configured": bool(config),
-        "from_env": banking.config_from_env(),
         "app_id": config[0] if config else None,
+        # The certificate Jetbuddy made for Enable Banking: in use, or waiting to be registered.
+        "certificate": banking.current_certificate(bdir),
+        "pending_certificate": banking.pending_certificate(bdir),
         "redirect_url": _redirect_url(request),
         "sync_hours": banking.SYNC_HOURS,
         "sessions": sessions,
@@ -864,25 +993,37 @@ def bank_status(request: Request, conn: sqlite3.Connection = Conn):
     }
 
 
+@app.post("/api/bank/certificate")
+def bank_certificate(request: Request):
+    """A key pair for registering Jetbuddy with Enable Banking; returns the certificate to paste there."""
+    return {"certificate": banking.new_certificate(budget_dir(request))}
+
+
 class BankConfigIn(BaseModel):
     app_id: str = Field(min_length=1, max_length=100)
-    private_key: str = Field(min_length=1, max_length=20000)
+    # Only when bringing your own key; otherwise the one from /api/bank/certificate is used.
+    private_key: str | None = Field(None, max_length=20000)
 
 
 @app.put("/api/bank/config")
-def bank_config(body: BankConfigIn):
-    if banking.config_from_env():
-        raise HTTPException(409, "Enable Banking is configured with environment variables")
+def bank_config(body: BankConfigIn, request: Request):
     try:
-        banking.save_config(body.app_id, body.private_key)
+        banking.save_config(budget_dir(request), body.app_id, body.private_key)
     except ValueError as e:
         raise HTTPException(422, str(e))
-    return {"ok": True}
+    ok, message = banking.test_connection(budget_dir(request))
+    return {"ok": True, "test": {"ok": ok, "message": message}}
+
+
+@app.post("/api/bank/test")
+def bank_test(request: Request):
+    ok, message = banking.test_connection(budget_dir(request))
+    return {"ok": ok, "message": message}
 
 
 @app.delete("/api/bank/config")
-def bank_config_delete():
-    banking.delete_config()
+def bank_config_delete(request: Request):
+    banking.delete_config(budget_dir(request))
     return {"ok": True}
 
 
@@ -890,13 +1031,13 @@ _aspsp_cache: dict[str, tuple[float, list]] = {}
 
 
 @app.get("/api/bank/aspsps")
-def bank_aspsps(country: str = "DK"):
+def bank_aspsps(request: Request, country: str = "DK"):
     country = country.upper()[:2]
     cached = _aspsp_cache.get(country)
     if not cached or cached[0] < time.time() - 86400:
         banks = [
             {"name": a["name"], "country": a["country"], "logo": a.get("logo"), "beta": a.get("beta", False)}
-            for a in banking.client().aspsps(country)
+            for a in banking.client(budget_dir(request)).aspsps(country)
         ]
         cached = _aspsp_cache[country] = (time.time(), sorted(banks, key=lambda a: a["name"].lower()))
     return cached[1]
@@ -909,7 +1050,7 @@ class BankConnectIn(BaseModel):
 
 @app.post("/api/bank/connect")
 def bank_connect(body: BankConnectIn, request: Request, conn: sqlite3.Connection = Conn):
-    return {"url": banking.connect_start(conn, body.name, body.country.upper(), _redirect_url(request))}
+    return {"url": banking.connect_start(conn, budget_dir(request), body.name, body.country.upper(), _redirect_url(request))}
 
 
 @app.get("/api/bank/callback")
@@ -919,8 +1060,8 @@ def bank_callback(request: Request, state: str = "", code: str = "", error: str 
         message = error_description or error or "no code from the bank"
         return RedirectResponse(f"/#/settings?bank=error&message={quote(message)}", status_code=303)
     try:
-        banking.connect_finish(conn, code, state)
-        result = banking.sync(conn, _psu_headers(request))
+        banking.connect_finish(conn, budget_dir(request), code, state)
+        result = banking.sync(conn, budget_dir(request), _psu_headers(request))
         return RedirectResponse(f"/#/settings?bank=connected&new={result['new']}", status_code=303)
     except banking.BankError as e:
         return RedirectResponse(f"/#/settings?bank=error&message={quote(str(e))}", status_code=303)
@@ -928,13 +1069,13 @@ def bank_callback(request: Request, state: str = "", code: str = "", error: str 
 
 @app.post("/api/bank/sync")
 def bank_sync(request: Request, conn: sqlite3.Connection = Conn):
-    return banking.sync(conn, _psu_headers(request))
+    return banking.sync(conn, budget_dir(request), _psu_headers(request))
 
 
 @app.delete("/api/bank/sessions/{id}")
-def bank_disconnect(id: str, conn: sqlite3.Connection = Conn):
+def bank_disconnect(id: str, request: Request, conn: sqlite3.Connection = Conn):
     one(conn, "SELECT id FROM bank_sessions WHERE id = ?", (id,))
-    banking.disconnect(conn, id)
+    banking.disconnect(conn, budget_dir(request), id)
     return {"ok": True}
 
 

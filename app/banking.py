@@ -18,6 +18,7 @@ What a sync does, per connected bank account:
 import hashlib
 import json
 import os
+import re
 import secrets
 import sqlite3
 import stat
@@ -26,10 +27,15 @@ import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
 import httpx
 import jwt
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
+from cryptography.x509.oid import NameOID
 
 from . import db
 
@@ -62,48 +68,117 @@ class BankError(Exception):
 
 
 # --------------------------------------------------------------------------
-# Configuration: the Enable Banking application id and its private key.
-# Environment variables win; otherwise they are saved in the data folder.
+# Configuration: the Enable Banking application id and its private key, kept
+# in the budget's own folder (never in backups).
+#
+# Enable Banking checks every request against a public certificate registered
+# with the application. Jetbuddy can make the key pair itself: the private key
+# never leaves the server, and the user pastes the certificate into Enable
+# Banking's form.
 
 
-def _config_path():
-    return db.DATA_DIR / "enablebanking.json"
+def _files(bdir: Path) -> dict[str, Path]:
+    return {
+        "config": bdir / "enablebanking.json",
+        "key": bdir / "enablebanking.pem",
+        "pending_key": bdir / "enablebanking-new.pem",
+        "pending_cert": bdir / "enablebanking-new.crt",
+        "cert": bdir / "enablebanking.crt",
+    }
 
 
-def _key_path():
-    return db.DATA_DIR / "enablebanking.pem"
-
-
-def get_config() -> tuple[str, str] | None:
-    app_id = os.environ.get("JETBUDDY_EB_APP_ID")
-    key_file = os.environ.get("JETBUDDY_EB_KEY_FILE")
-    if not app_id and _config_path().exists():
-        app_id = json.loads(_config_path().read_text()).get("app_id")
-    path = key_file or (_key_path() if _key_path().exists() else None)
-    if not app_id or not path:
+def get_config(bdir: Path) -> tuple[str, str] | None:
+    f = _files(bdir)
+    if not f["config"].exists() or not f["key"].exists():
         return None
-    return app_id, open(path).read()
+    app_id = json.loads(f["config"].read_text()).get("app_id")
+    return (app_id, f["key"].read_text()) if app_id else None
 
 
-def config_from_env() -> bool:
-    return bool(os.environ.get("JETBUDDY_EB_APP_ID") and os.environ.get("JETBUDDY_EB_KEY_FILE"))
+def _write_secret(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
-def save_config(app_id: str, private_key: str) -> None:
+def new_certificate(bdir: Path) -> str:
+    """Make a key pair for a new Enable Banking application and return the
+    public certificate to paste into their form. Asking again returns the same
+    one until it is used, so reloading the page doesn't invalidate it."""
+    f = _files(bdir)
+    if f["pending_key"].exists() and f["pending_cert"].exists():
+        return f["pending_cert"].read_text()
+    key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Jetbuddy")])
+    now = datetime.now(timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=3650))
+        .sign(key, hashes.SHA256())
+    )
+    _write_secret(
+        f["pending_key"],
+        key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode(),
+    )
+    pem = cert.public_bytes(serialization.Encoding.PEM).decode()
+    f["pending_cert"].write_text(pem)
+    return pem
+
+
+def pending_certificate(bdir: Path) -> str | None:
+    f = _files(bdir)
+    return f["pending_cert"].read_text() if f["pending_cert"].exists() else None
+
+
+def current_certificate(bdir: Path) -> str | None:
+    f = _files(bdir)
+    return f["cert"].read_text() if f["cert"].exists() else None
+
+
+def save_config(bdir: Path, app_id: str, private_key: str | None = None) -> None:
+    """Use this application id, with an uploaded private key or else the key
+    pair made by new_certificate()."""
+    f = _files(bdir)
+    cert = None
+    if private_key is None:
+        if not f["pending_key"].exists():
+            raise ValueError("make the certificate first")
+        private_key = f["pending_key"].read_text()
+        cert = f["pending_cert"].read_text()
     try:
         load_pem_private_key(private_key.encode(), password=None)
     except (ValueError, TypeError) as e:
-        raise ValueError("not a valid private key (.pem file)") from e
-    db.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    key = _key_path()
-    key.write_text(private_key.strip() + "\n")
-    key.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    _config_path().write_text(json.dumps({"app_id": app_id.strip()}))
+        raise ValueError("not a valid private key (.pem or .key file)") from e
+    app_id = app_id.strip()
+    if not re.fullmatch(r"[0-9a-fA-F-]{20,64}", app_id):
+        raise ValueError("that doesn't look like an application ID (it looks like 03028be5-b3cf-…)")
+    _write_secret(f["key"], private_key.strip() + "\n")
+    f["config"].write_text(json.dumps({"app_id": app_id}))
+    if cert:
+        f["cert"].write_text(cert)
+        f["pending_key"].unlink(missing_ok=True)
+        f["pending_cert"].unlink(missing_ok=True)
+    else:
+        f["cert"].unlink(missing_ok=True)
 
 
-def delete_config() -> None:
-    for path in (_key_path(), _config_path()):
+def delete_config(bdir: Path) -> None:
+    for path in _files(bdir).values():
         path.unlink(missing_ok=True)
+
+
+def test_connection(bdir: Path, country: str = "DK") -> tuple[bool, str]:
+    """Ask Enable Banking for its list of banks: works only if it accepts the key."""
+    try:
+        banks = client(bdir).aspsps(country)
+        return True, f"{len(banks)} banks"
+    except BankError as e:
+        return False, str(e)
 
 
 # --------------------------------------------------------------------------
@@ -172,8 +247,8 @@ class EnableBanking:
             params = {**params, "continuation_key": key}
 
 
-def client() -> EnableBanking:
-    config = get_config()
+def client(bdir: Path) -> EnableBanking:
+    config = get_config(bdir)
     if not config:
         raise BankError(400, "NOT_CONFIGURED", "Enable Banking is not set up")
     return EnableBanking(*config)
@@ -253,9 +328,9 @@ def _ext_ids(transactions: list[dict]) -> list[str]:
 # Connecting a bank
 
 
-def connect_start(conn: sqlite3.Connection, aspsp_name: str, country: str, redirect_url: str) -> str:
+def connect_start(conn: sqlite3.Connection, bdir: Path, aspsp_name: str, country: str, redirect_url: str) -> str:
     """Ask Enable Banking for the bank's login page; returns its URL."""
-    eb = client()
+    eb = client(bdir)
     info = next((a for a in eb.aspsps(country) if a.get("name") == aspsp_name), {})
     days = CONSENT_DAYS
     if info.get("maximum_consent_validity"):
@@ -291,12 +366,12 @@ def _account_ident(acc: dict) -> str:
     return "uid:" + acc["uid"]
 
 
-def connect_finish(conn: sqlite3.Connection, code: str, state: str) -> str:
+def connect_finish(conn: sqlite3.Connection, bdir: Path, code: str, state: str) -> str:
     """Turn the code the bank sent back into a session and its accounts."""
     pending = conn.execute("SELECT * FROM bank_pending WHERE state = ?", (state,)).fetchone()
     if not pending:
         raise BankError(400, "UNKNOWN_STATE", "this bank login was not started here, or it took too long")
-    session = client().create_session(code)
+    session = client(bdir).create_session(code)
     with db.transaction(conn):
         conn.execute("DELETE FROM bank_pending WHERE state = ?", (state,))
         conn.execute(
@@ -326,9 +401,9 @@ def connect_finish(conn: sqlite3.Connection, code: str, state: str) -> str:
     return session["session_id"]
 
 
-def disconnect(conn: sqlite3.Connection, session_id: str) -> None:
+def disconnect(conn: sqlite3.Connection, bdir: Path, session_id: str) -> None:
     try:
-        client().delete_session(session_id)
+        client(bdir).delete_session(session_id)
     except BankError:
         pass  # already gone at the bank's end; forget it here anyway
     with db.transaction(conn):
@@ -450,13 +525,13 @@ def _psu_for(session, psu: dict | None) -> dict | None:
     return psu
 
 
-def sync(conn: sqlite3.Connection, psu: dict | None = None) -> dict:
+def sync(conn: sqlite3.Connection, bdir: Path, psu: dict | None = None) -> dict:
     with _sync_lock:
-        return _sync(conn, psu)
+        return _sync(conn, bdir, psu)
 
 
-def _sync(conn: sqlite3.Connection, psu: dict | None) -> dict:
-    eb = client()
+def _sync(conn: sqlite3.Connection, bdir: Path, psu: dict | None) -> dict:
+    eb = client(bdir)
     new_ids: list[int] = []
     errors: list[str] = []
     now = datetime.now(timezone.utc)
@@ -534,8 +609,8 @@ def _sync_account(conn: sqlite3.Connection, eb: EnableBanking, ba, psu: dict | N
     return new_ids
 
 
-def due_for_sync(conn: sqlite3.Connection) -> bool:
-    if SYNC_HOURS <= 0 or not get_config():
+def due_for_sync(conn: sqlite3.Connection, bdir: Path) -> bool:
+    if SYNC_HOURS <= 0 or not get_config(bdir):
         return False
     cutoff = int(time.time() - SYNC_HOURS * 3600)
     return bool(

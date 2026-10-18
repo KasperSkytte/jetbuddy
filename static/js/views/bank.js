@@ -38,50 +38,156 @@ function shortDate(iso) {
 
 // ------------------------------------------------------------------ setup
 
-function SetupForm({ status, onDone }) {
+const PROJECT_URL = 'https://github.com/kasperskytte/jetbuddy';
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(t('bank.copied'));
+  } catch {
+    // Clipboard needs https; select the text instead so it can be copied by hand.
+    toast(t('bank.copyFailed'), { error: true });
+  }
+}
+
+function CopyValue({ value, mono = false }) {
+  return html`<div class="copy-box"><code style=${mono ? '' : 'font-family:inherit'}>${value}</code>
+    <button class="btn small" type="button" onClick=${() => copyText(value)}><${Icon} name="copy" size=${15} />${t('bank.copy')}</button></div>`;
+}
+
+function Step({ n, title, done, children }) {
+  return html`<li class=${'step' + (done ? ' done' : '')}>
+    <span class="step-n" aria-hidden="true">${done ? html`<${Icon} name="check" size=${15} stroke=${2.6} />` : n}</span>
+    <div class="step-body"><strong>${title}</strong>${children}</div>
+  </li>`;
+}
+
+/** Shows how a test of the Enable Banking connection went, with what to do about a failure. */
+function TestResult({ result }) {
+  if (!result) return null;
+  if (result.ok) return html`<div class="notice good-notice"><${Icon} name="check" size=${18} /> ${t('bank.testOk')}</div>`;
+  return html`<div class="notice bad-notice"><strong>${t('bank.testFailed')}</strong>
+    <div class="small">${result.message}</div>
+    <ul class="small" style="margin:6px 0 0;padding-left:18px">
+      <li>${t('bank.testHint1')}</li><li>${t('bank.testHint2')}</li><li>${t('bank.testHint3')}</li>
+    </ul></div>`;
+}
+
+function SetupGuide({ status, onDone }) {
+  const [cert, setCert] = useState(status.pending_certificate);
   const [appId, setAppId] = useState('');
-  const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(status.redirect_url);
-      toast(t('bank.copied'));
-    } catch {
-      toast(status.redirect_url);
-    }
-  };
-  const save = async () => {
+  const [result, setResult] = useState(null);
+  const [ownKey, setOwnKey] = useState(null); // text of an uploaded private key
+  const http = status.redirect_url.startsWith('http:');
+
+  const makeCert = async () => {
     setBusy(true);
     try {
-      await api.put('/api/bank/config', { app_id: appId.trim(), private_key: key });
-      toast(t('common.saved'));
-      onDone();
+      setCert((await api.post('/api/bank/certificate')).certificate);
     } catch (e) {
       toastError(e);
     } finally {
       setBusy(false);
     }
   };
+  const save = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await api.put('/api/bank/config', { app_id: appId.trim(), private_key: ownKey });
+      setResult(r.test);
+      if (r.test.ok) setTimeout(onDone, 1200);
+      else onDone();
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return html`<div class="stack" style="padding:0 16px 16px">
     <p class="small secondary" style="margin:0">${t('bank.intro')}</p>
     <ol class="steps">
-      <li>${t('bank.step1')} <a href="https://enablebanking.com/sign-in/" target="_blank" rel="noopener">enablebanking.com</a></li>
-      <li>${t('bank.step2')}
-        <div class="copy-box"><code>${status.redirect_url}</code>
-          <button class="btn small" onClick=${copy}><${Icon} name="copy" size=${15} />${t('bank.copy')}</button></div>
-        <div class="small muted">${t('bank.step2b')}</div></li>
-      <li>${t('bank.step3')}</li>
-      <li>${t('bank.step4')}</li>
+      <${Step} n="1" title=${t('bank.s1Title')}>
+        <div class="small secondary">${t('bank.s1Text')}</div>
+        <a class="btn small" style="align-self:flex-start;margin-top:6px" href="https://enablebanking.com/sign-in/" target="_blank" rel="noopener">
+          ${t('bank.s1Button')} <${Icon} name="right" size=${15} /></a>
+      </${Step}>
+
+      <${Step} n="2" title=${t('bank.s2Title')} done=${!!cert}>
+        <div class="small secondary">${t('bank.s2Text')}</div>
+        ${cert ? html`<textarea class="input cert" readonly rows="5" onFocus=${(e) => e.target.select()}>${cert}</textarea>
+            <button class="btn small" style="align-self:flex-start" onClick=${() => copyText(cert)}><${Icon} name="copy" size=${15} />${t('bank.copyCert')}</button>`
+          : html`<button class="btn small primary" style="align-self:flex-start;margin-top:6px" disabled=${busy} onClick=${makeCert}>${t('bank.s2Button')}</button>`}
+      </${Step}>
+
+      <${Step} n="3" title=${t('bank.s3Title')}>
+        <div class="small secondary">${t('bank.s3Text')}</div>
+        <dl class="form-fields">
+          <dt>Environment</dt><dd><strong>Production</strong><div class="small muted">${t('bank.fEnv')}</div></dd>
+          <dt>${t('bank.fKeyLabel')}</dt><dd><strong>Generate outside the browser and import public certificate</strong></dd>
+          <dt>Application name</dt><dd><${CopyValue} value="Jetbuddy" /></dd>
+          <dt>Allowed redirect URLs</dt><dd><${CopyValue} value=${status.redirect_url} mono />
+            <div class="small muted">${t('bank.fRedirect')}</div>
+            ${http && html`<div class="small bad">${t('bank.fRedirectHttp')}</div>`}</dd>
+          <dt>${t('bank.fDescLabel')}</dt><dd><${CopyValue} value=${t('bank.fDescValue')} /></dd>
+          <dt>Email for data protection matters</dt><dd>${t('bank.fEmail')}</dd>
+          <dt>Privacy URL / Terms URL</dt><dd><${CopyValue} value=${PROJECT_URL} /><div class="small muted">${t('bank.fUrls')}</div></dd>
+          <dt>Public certificate</dt><dd>${cert ? t('bank.fCert') : html`<span class="bad">${t('bank.fCertMissing')}</span>`}</dd>
+        </dl>
+        <div class="small secondary">${t('bank.s3Done')}</div>
+      </${Step}>
+
+      <${Step} n="4" title=${t('bank.s4Title')}>
+        <div class="small secondary">${t('bank.s4Text')}</div>
+      </${Step}>
+
+      <${Step} n="5" title=${t('bank.s5Title')}>
+        <div class="small secondary">${t('bank.s5Text')}</div>
+        <input class="input" style="margin-top:6px" value=${appId} onInput=${(e) => setAppId(e.target.value)}
+          placeholder="03028be5-b3cf-45eb-b390-ab8a0270a70a" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label=${t('bank.appId')} />
+        <button class="btn primary" style="align-self:flex-start;margin-top:8px" disabled=${busy || !appId.trim() || (!cert && !ownKey)} onClick=${save}>
+          ${busy ? t('bank.testing') : t('bank.s5Button')}</button>
+        <${TestResult} result=${result} />
+      </${Step}>
     </ol>
-    <label class="field"><span>${t('bank.appId')}</span>
-      <input class="input" value=${appId} onInput=${(e) => setAppId(e.target.value)} placeholder="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" autocomplete="off" spellcheck="false" /></label>
-    <div class="field"><span>${t('bank.key')}</span>
-      <label class="btn" style="align-self:flex-start;cursor:pointer"><${Icon} name="upload" size=${18} />
-        ${key ? t('bank.keyChosen') : t('bank.chooseKey')}
-        <input type="file" accept=".pem,.key,application/x-pem-file,text/plain" class="sr-only"
-          onChange=${async (e) => { const f = e.target.files[0]; if (f) setKey(await f.text()); }} /></label>
-      <span class="hint">${t('bank.keyHint')}</span></div>
-    <button class="btn primary" style="align-self:flex-start" disabled=${busy || !appId.trim() || !key} onClick=${save}>${t('common.save')}</button>
+
+    <details class="more">
+      <summary>${t('bank.ownKey')}</summary>
+      <div class="stack" style="padding-top:8px">
+        <p class="small secondary" style="margin:0">${t('bank.ownKeyText')}</p>
+        <label class="btn small" style="align-self:flex-start;cursor:pointer"><${Icon} name="upload" size=${16} />
+          ${ownKey ? t('bank.keyChosen') : t('bank.chooseKey')}
+          <input type="file" accept=".pem,.key,application/x-pem-file,text/plain" class="sr-only"
+            onChange=${async (e) => { const f = e.target.files[0]; if (f) setOwnKey(await f.text()); }} /></label>
+        <span class="small muted">${t('bank.keyHint')}</span>
+      </div>
+    </details>
+  </div>`;
+}
+
+function ConfiguredInfo({ status }) {
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const test = async () => {
+    setBusy(true);
+    try {
+      setResult(await api.post('/api/bank/test'));
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return html`<div style="padding:0 16px 12px" class="stack">
+    <div class="row wrap small secondary">
+      <span class="spacer">${t('bank.configuredAs')} <code>${status.app_id}</code></span>
+      <button class="btn small" disabled=${busy} onClick=${test}>${busy ? t('bank.testing') : t('bank.test')}</button>
+    </div>
+    <${TestResult} result=${result} />
+    ${status.certificate && html`<details class="more small"><summary>${t('bank.showCert')}</summary>
+      <textarea class="input cert" readonly rows="5" onFocus=${(e) => e.target.select()}>${status.certificate}</textarea></details>`}
   </div>`;
 }
 
@@ -191,7 +297,8 @@ export function BankSettings() {
   return html`<section class="card flush" style="margin-bottom:12px">
     <div class="member-head"><${Icon} name="bank" /><h2>${t('bank.title')}</h2>
       ${s.sessions.length > 0 && html`<button class="btn small" disabled=${syncing} onClick=${sync}><${Icon} name="sync" size=${16} />${syncing ? t('bank.syncing') : t('bank.syncNow')}</button>`}</div>
-    ${!s.configured ? html`<${SetupForm} status=${s} onDone=${bump} />` : html`
+    ${!s.configured ? html`<${SetupGuide} status=${s} onDone=${bump} />` : html`
+      <${ConfiguredInfo} status=${s} />
       ${s.sessions.length === 0 && html`<div style="padding:0 16px 16px" class="stack">
         <p class="small secondary" style="margin:0">${t('bank.ready')}</p>
         <button class="btn primary" style="align-self:flex-start" onClick=${() => setPicker({})}><${Icon} name="link" size=${18} />${t('bank.connect')}</button>
@@ -236,7 +343,7 @@ export function BankSettings() {
         </div>`)}</div>
       </div>`}
       <p class="small muted" style="margin:0;padding:10px 16px 14px">${t('bank.autoSync', { n: s.sync_hours })}
-        ${!s.from_env && html` <button class="btn ghost small danger" onClick=${removeConfig}>${t('bank.removeKey')}</button>`}</p>
+        <button class="btn ghost small danger" onClick=${removeConfig}>${t('bank.removeKey')}</button></p>
     `}
     ${picker && html`<${BankPicker} preset=${picker.preset} onClose=${() => setPicker(null)} />`}
   </section>`;

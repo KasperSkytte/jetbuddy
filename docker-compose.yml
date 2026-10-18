@@ -9,7 +9,7 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/data
-    environment:
-      # Optional: require a password. Leave empty for no login (fine on a
-      # trusted home network).
-      JETBUDDY_PASSWORD: ""
+    # environment:
+    #   # Stop new budgets being created from the login page (e.g. if the
+    #   # server is reachable from the internet).
+    #   JETBUDDY_ALLOW_NEW_BUDGETS: "false"

@@ -71,15 +71,18 @@ function Shell() {
 
 function App() {
   const store = useStore();
-  const [phase, setPhase] = useState('loading'); // loading | login | ready | error
+  const [phase, setPhase] = useState('loading'); // loading | login | setup | ready | error
   const [error, setError] = useState(null);
+  const [session, setSession] = useState(null);
 
   const boot = async () => {
     try {
       const session = await api.get('/api/session');
+      setSession(session);
+      setStore({ session });
       if (!session.logged_in) {
         applySettings({});
-        setPhase('login');
+        setPhase(session.has_budgets ? 'login' : 'setup');
         return;
       }
       const household = await reloadHousehold();
@@ -95,16 +98,16 @@ function App() {
     applyTheme(getStore().theme);
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(getStore().theme));
     boot();
-    return onUnauthorized(() => setPhase('login'));
+    return onUnauthorized(() => boot());
   }, []);
 
   if (phase === 'loading') return html`<div class="loading"><${Logo} size=${48} /></div>`;
-  if (phase === 'login') return html`<${Login} onDone=${boot} />`;
+  if (phase === 'login') return html`<${Login} canCreate=${session?.can_create} onDone=${boot} onCreate=${() => setPhase('setup')} />`;
+  if (phase === 'setup') return html`<${Setup} onDone=${boot} onBack=${session?.has_budgets ? () => setPhase('login') : null} />`;
   if (phase === 'error')
     return html`<div class="center-page"><div class="card center-card">
       <h2>${t('error.title')}</h2><p class="secondary">${error?.message === 'offline' ? t('error.offline') : String(error?.message || error)}</p>
       <button class="btn primary" onClick=${() => { setPhase('loading'); boot(); }}>${t('common.retry')}</button></div></div>`;
-  if (!store.household.setup_done) return html`<${Setup} onDone=${(h) => { applySettings(h.settings); }} />`;
   return html`<${Shell} />`;
 }
 

@@ -480,9 +480,25 @@ details.more summary { cursor: pointer; color: var(--accent-ink); font-weight: 5
 .bank-line span { display: inline-flex; align-items: center; gap: 4px; }
 .bank-line .btn.small { min-height: 26px; padding: 0 8px; font-size: 12.5px; color: var(--accent-ink); }
 .bank-account { padding: 10px 16px 6px 52px; border-top: 1px solid var(--border); }
-.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+.steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 14.5px; }
+.step { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.step:first-child { border-top: 0; }
+.step-n { flex: 0 0 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-wash); color: var(--accent-ink); font-weight: 700; font-size: 13px; }
+.step.done .step-n { background: var(--good); color: #fff; }
+.step-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.form-fields { margin: 6px 0; display: grid; grid-template-columns: 1fr; gap: 2px 14px; font-size: 13.5px; }
+.form-fields dt { font-weight: 650; color: var(--text-2); margin-top: 8px; }
+.form-fields dd { margin: 0; }
+@media (min-width: 700px) { .form-fields { grid-template-columns: 190px 1fr; } .form-fields dt { margin-top: 10px; } .form-fields dd { margin-top: 6px; } }
+.cert { font: 11.5px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 0; margin-top: 6px; white-space: pre; overflow-x: auto; }
+.notice { padding: 10px 12px; border-radius: 10px; font-size: 14px; margin-top: 8px; }
+.good-notice { background: color-mix(in srgb, var(--good) 12%, transparent); color: var(--good); display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.bad-notice { background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--text); }
+.bad-notice strong { color: var(--bad); }
 .copy-box { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0 4px; padding: 8px 10px; background: var(--surface-2); border-radius: 10px; }
 .copy-box code { flex: 1 1 200px; font-size: 13px; word-break: break-all; }
 .tx-row { min-height: 58px; gap: 12px; }
 .tx-head { padding: 12px 14px; background: var(--surface-2); border-radius: 12px; }
 .rule-box { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 12px; border: 1px solid var(--border); border-radius: 12px; }
+.export-card { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.export-card .spacer { min-width: 200px; }

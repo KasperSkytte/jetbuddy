@@ -110,7 +110,35 @@ def connect(client):
 def test_config_rejects_bad_key(client, household):
     r = client.put("/api/bank/config", json={"app_id": APP_ID, "private_key": "not a key"})
     assert r.status_code == 422
+    r = client.put("/api/bank/config", json={"app_id": "not an id", "private_key": None})
+    assert r.status_code == 422
     assert client.get("/api/bank/status").json()["configured"] is False
+
+
+def test_certificate_made_by_jetbuddy(client, household, monkeypatch):
+    """The flow in the app: Jetbuddy makes the key, the user registers the
+    certificate with Enable Banking and pastes back the application ID."""
+    cert_pem = client.post("/api/bank/certificate").json()["certificate"]
+    assert cert_pem.startswith("-----BEGIN CERTIFICATE-----")
+    assert client.post("/api/bank/certificate").json()["certificate"] == cert_pem  # same until used
+    assert client.get("/api/bank/status").json()["pending_certificate"] == cert_pem
+    from cryptography import x509
+
+    fake = FakeBank(x509.load_pem_x509_certificate(cert_pem.encode()).public_key())
+    monkeypatch.setattr(banking, "TRANSPORT", httpx.MockTransport(fake.handler))
+    r = client.put("/api/bank/config", json={"app_id": APP_ID})
+    assert r.status_code == 200, r.text
+    assert r.json()["test"]["ok"] is True  # the fake accepted the signature
+    status = client.get("/api/bank/status").json()
+    assert status["configured"] and status["certificate"] == cert_pem and status["pending_certificate"] is None
+
+
+def test_connection_test_reports_rejection(client, household, bank, monkeypatch):
+    monkeypatch.setattr(banking, "TRANSPORT", httpx.MockTransport(
+        lambda r: httpx.Response(401, json={"message": "Invalid JWT", "error": "UNAUTHORIZED_ACCESS", "code": 401})
+    ))
+    r = client.post("/api/bank/test").json()
+    assert r["ok"] is False and "Invalid JWT" in r["message"]
 
 
 def test_connect_and_sync(client, household, bank):
@@ -228,6 +256,26 @@ def test_disconnect_keeps_history(client, household, bank):
 def test_callback_rejects_unknown_state(client, household, bank):
     r = client.get("/api/bank/callback", params={"code": "good-code", "state": "forged"}, follow_redirects=False)
     assert "bank=error" in r.headers["location"]
+
+
+def test_scheduled_sync_covers_every_budget(client, household, bank):
+    from app import main
+
+    connect(client)
+    client.post("/api/logout")
+    from tests.conftest import new_budget
+
+    new_budget(client, login="other")  # no bank: must simply be skipped
+    bank.requests.clear()
+    main._scheduled_sync()  # not due yet: the callback just synced
+    assert not bank.requests
+    from app import db
+
+    conn = db.open_budget(1)  # make the last sync look 7 hours old
+    conn.execute("UPDATE bank_sessions SET last_sync = last_sync - 7 * 3600")
+    conn.close()
+    main._scheduled_sync()
+    assert any("/accounts/" in r.url.path for r in bank.requests)
 
 
 def test_suggested_rule_pattern_skips_what_changes():

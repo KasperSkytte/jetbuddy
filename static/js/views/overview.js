@@ -6,6 +6,8 @@ import { ColumnChart, LineChart, BarList, ChartCard, ChartTable, Legend } from '
 import { Dot, Empty, Icon, seriesColor } from '../ui.js';
 import { members, memberById, memberColor, categoryById, accountById, INCOME_COLOR, EXPENSE_COLOR, referenceMonth, monthTotals } from '../model.js';
 import { CopyYearBanner } from './plan.js';
+import { ExportSheet } from './export.js';
+import { useState } from '../lib.js';
 
 function Tile({ label, value, delta }) {
   return html`<div class="tile"><div class="label">${label}</div><div class="value">${value}</div>${delta && html`<div class="delta">${delta}</div>`}</div>`;
@@ -17,6 +19,7 @@ function netClass(v) {
 
 export function Overview() {
   const { year, household } = useStore();
+  const [exporting, setExporting] = useState(false);
   const summary = useData(`/api/summary/${year}`);
   const items = useData(`/api/years/${year}/items`);
   const s = summary.data;
@@ -166,6 +169,12 @@ export function Overview() {
           </div>`;
         })}</div>
       </section>`}
+      <section class="card span-2 export-card">
+        <${Icon} name="table" />
+        <div class="spacer"><strong>${t('export.cardTitle')}</strong><div class="small secondary">${t('export.cardText')}</div></div>
+        <button class="btn" onClick=${() => setExporting(true)}><${Icon} name="download" size=${18} />${t('export.button')}</button>
+      </section>
     </div>
+    ${exporting && html`<${ExportSheet} onClose=${() => setExporting(false)} />`}
   </div>`;
 }

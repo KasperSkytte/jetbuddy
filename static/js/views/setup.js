@@ -14,7 +14,12 @@ function guessLocale() {
 const CURRENCY_BY_REGION = { DK: 'DKK', SE: 'SEK', NO: 'NOK', IS: 'ISK', GB: 'GBP', US: 'USD', CH: 'CHF', PL: 'PLN', CZ: 'CZK', CA: 'CAD', AU: 'AUD', NZ: 'NZD', JP: 'JPY', IN: 'INR', BR: 'BRL', ZA: 'ZAR' };
 
 /** First run: name the household and the people in it. */
-export function Setup({ onDone }) {
+function slug(text) {
+  return text.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/æ/g, 'ae').replace(/ø/g, 'oe').replace(/å/g, 'aa')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+}
+
+export function Setup({ onDone, onBack }) {
   const [, rerender] = useState(0);
   const locale0 = guessLocale();
   const [form, setForm] = useState({
@@ -26,7 +31,11 @@ export function Setup({ onDone }) {
     shared_name: t('setup.sharedDefault'),
     starter_categories: true,
     starter_accounts: true,
+    login: '',
+    password: '',
   });
+  const [repeat, setRepeat] = useState('');
+  const [loginEdited, setLoginEdited] = useState(false);
   const [busy, setBusy] = useState(false);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
   const names = form.members.map((m) => m.trim()).filter(Boolean);
@@ -43,7 +52,7 @@ export function Setup({ onDone }) {
     e.preventDefault();
     setBusy(true);
     try {
-      const household = await api.post('/api/setup', { ...form, household: form.household.trim(), members: names });
+      const household = await api.post('/api/budgets', { ...form, household: form.household.trim(), members: names, login: form.login.trim() });
       setLocale(form.locale, form.currency);
       setStore({ household });
       onDone(household);
@@ -59,7 +68,8 @@ export function Setup({ onDone }) {
       <select class="input" value=${form.language} onChange=${(e) => changeLanguage(e.target.value)}>
         ${Object.entries(LANGUAGES).map(([k, v]) => html`<option key=${k} value=${k}>${v}</option>`)}</select></label>
     <label class="field"><span>${t('settings.householdName')}</span>
-      <input class="input" value=${form.household} onInput=${(e) => set({ household: e.target.value })} placeholder=${t('setup.householdPlaceholder')} maxlength="100" autofocus /></label>
+      <input class="input" value=${form.household} placeholder=${t('setup.householdPlaceholder')} maxlength="100" autofocus
+        onInput=${(e) => set({ household: e.target.value, ...(loginEdited ? {} : { login: slug(e.target.value) }) })} /></label>
     <div class="field"><span>${t('setup.people')}</span>
       <span class="hint">${t('setup.peopleHint')}</span>
       ${form.members.map((m, i) => html`<div class="row" key=${i}>
@@ -82,8 +92,22 @@ export function Setup({ onDone }) {
         <select class="input" value=${form.locale} onChange=${(e) => set({ locale: e.target.value })}>
           ${LOCALES.map((l) => html`<option key=${l} value=${l}>${localeExample(l)}</option>`)}</select></label>
     </div>
+    <div class="field"><span>${t('setup.login')}</span>
+      <span class="hint">${t('setup.loginHint')}</span>
+      <input class="input" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" value=${form.login}
+        placeholder=${t('login.username')} aria-label=${t('login.username')} maxlength="60"
+        onInput=${(e) => { setLoginEdited(true); set({ login: e.target.value }); }} />
+      <input class="input" type="password" autocomplete="new-password" value=${form.password} placeholder=${t('login.password')}
+        aria-label=${t('login.password')} onInput=${(e) => set({ password: e.target.value })} />
+      <input class="input" type="password" autocomplete="new-password" value=${repeat} placeholder=${t('setup.passwordRepeat')}
+        aria-label=${t('setup.passwordRepeat')} onInput=${(e) => setRepeat(e.target.value)} />
+      ${form.password && form.password.length < 8 ? html`<span class="hint bad">${t('setup.passwordShort')}</span>`
+        : repeat && repeat !== form.password ? html`<span class="hint bad">${t('setup.passwordMismatch')}</span>` : null}
+    </div>
     <${Switch} checked=${form.starter_categories} onChange=${(v) => set({ starter_categories: v })} label=${t('setup.starterCategories')} />
     <${Switch} checked=${form.starter_accounts} onChange=${(v) => set({ starter_accounts: v })} label=${t('setup.starterAccounts')} hint=${t('setup.starterAccountsHint')} />
-    <button class="btn primary block" disabled=${busy || !form.household.trim() || !names.length || !form.shared_name.trim()}>${t('setup.start')}</button>
+    <button class="btn primary block" disabled=${busy || !form.household.trim() || !names.length || !form.shared_name.trim()
+      || form.login.trim().length < 2 || /\s/.test(form.login.trim()) || form.password.length < 8 || repeat !== form.password}>${t('setup.start')}</button>
+    ${onBack && html`<button type="button" class="btn ghost" onClick=${onBack}>${t('setup.back')}</button>`}
   </form></div>`;
 }

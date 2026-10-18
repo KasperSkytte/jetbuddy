@@ -7,6 +7,7 @@ import { Sheet, Swatches, Switch, Segmented, Dot, Icon, seriesColor, toast, toas
 import { categories } from '../model.js';
 import { ImportSheet } from './import.js';
 import { BankSettings } from './bank.js';
+import { ExportSheet } from './export.js';
 
 export const LOCALES = ['en-US', 'en-GB', 'da-DK', 'de-DE', 'de-CH', 'sv-SE', 'nb-NO', 'fi-FI', 'nl-NL', 'fr-FR', 'es-ES', 'it-IT', 'pl-PL'];
 export const CURRENCIES = ['DKK', 'EUR', 'USD', 'GBP', 'SEK', 'NOK', 'ISK', 'CHF', 'PLN', 'CZK', 'CAD', 'AUD', 'NZD', 'JPY', 'INR', 'BRL', 'ZAR'];
@@ -34,6 +35,90 @@ function Section({ title, icon, children, action }) {
     <div class="member-head">${icon && html`<${Icon} name=${icon} />`}<h2>${title}</h2>${action}</div>
     ${children}
   </section>`;
+}
+
+function LoginDetailsSheet({ login, onClose }) {
+  const [form, setForm] = useState({ current: '', login, password: '', repeat: '' });
+  const [busy, setBusy] = useState(false);
+  const set = (p) => setForm((f) => ({ ...f, ...p }));
+  const short = form.password && form.password.length < 8;
+  const mismatch = form.repeat !== form.password;
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put('/api/login-details', {
+        current_password: form.current,
+        login: form.login.trim() !== login ? form.login.trim() : null,
+        password: form.password || null,
+      });
+      toast(t('settings.loginChanged'));
+      setStore({ session: await api.get('/api/session') });
+      onClose();
+    } catch (e) {
+      toast(e.status === 401 ? t('settings.wrongPassword') : e.message, { error: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return html`<${Sheet} title=${t('settings.changeLogin')} onClose=${onClose}
+    footer=${html`<span class="spacer"></span><button class="btn" onClick=${onClose}>${t('common.cancel')}</button>
+      <button class="btn primary" disabled=${busy || !form.current || short || mismatch || form.login.trim().length < 2} onClick=${save}>${t('common.save')}</button>`}>
+    <div class="form-grid">
+      <label class="field"><span>${t('login.username')}</span>
+        <input class="input" autocomplete="username" autocapitalize="none" spellcheck="false" value=${form.login} onInput=${(e) => set({ login: e.target.value })} /></label>
+      <label class="field"><span>${t('settings.newPassword')}</span>
+        <input class="input" type="password" autocomplete="new-password" value=${form.password} onInput=${(e) => set({ password: e.target.value })} />
+        <span class=${'hint' + (short ? ' bad' : '')}>${short ? t('setup.passwordShort') : t('settings.newPasswordHint')}</span></label>
+      ${form.password && html`<label class="field"><span>${t('setup.passwordRepeat')}</span>
+        <input class="input" type="password" autocomplete="new-password" value=${form.repeat} onInput=${(e) => set({ repeat: e.target.value })} />
+        ${form.repeat && mismatch && html`<span class="hint bad">${t('setup.passwordMismatch')}</span>`}</label>`}
+      <label class="field"><span>${t('settings.currentPassword')}</span>
+        <input class="input" type="password" autocomplete="current-password" value=${form.current} onInput=${(e) => set({ current: e.target.value })} />
+        <span class="hint">${t('settings.currentPasswordHint')}</span></label>
+    </div>
+  </${Sheet}>`;
+}
+
+function DeleteBudgetSheet({ name, onClose }) {
+  const [password, setPassword] = useState('');
+  const remove = async () => {
+    if (!confirm(t('settings.deleteBudgetConfirm', { name }))) return;
+    try {
+      await api.post('/api/budget/delete', { password });
+      location.reload();
+    } catch (e) {
+      toast(e.status === 401 ? t('settings.wrongPassword') : e.message, { error: true });
+    }
+  };
+  return html`<${Sheet} title=${t('settings.deleteBudget')} onClose=${onClose}
+    footer=${html`<span class="spacer"></span><button class="btn" onClick=${onClose}>${t('common.cancel')}</button>
+      <button class="btn primary" style="background:var(--bad);border-color:var(--bad)" disabled=${!password} onClick=${remove}>${t('settings.deleteBudget')}</button>`}>
+    <div class="stack">
+      <p class="secondary" style="margin:0">${t('settings.deleteBudgetText', { name })}</p>
+      <label class="field"><span>${t('login.password')}</span>
+        <input class="input" type="password" autocomplete="current-password" value=${password} onInput=${(e) => setPassword(e.target.value)} /></label>
+    </div>
+  </${Sheet}>`;
+}
+
+function LoginSection() {
+  const { session, household } = useStore();
+  const [sheet, setSheet] = useState(null);
+  const login = session?.budget?.login || '';
+  const logout = async () => {
+    await api.post('/api/logout');
+    location.reload();
+  };
+  return html`<${Section} title=${t('settings.login')} icon="lock">
+    <div class="list-row" style="border-top:0">
+      <div class="main-col"><div class="name">${login}</div><div class="meta" style="white-space:normal">${t('settings.loginHint')}</div></div>
+    </div>
+    <button class="add-row" onClick=${() => setSheet('change')}><${Icon} name="edit" size=${18} />${t('settings.changeLogin')}</button>
+    <button class="add-row" onClick=${logout}><${Icon} name="logout" size=${18} />${t('settings.logout')}</button>
+    <button class="add-row" style="color:var(--bad)" onClick=${() => setSheet('delete')}><${Icon} name="trash" size=${18} />${t('settings.deleteBudget')}</button>
+    ${sheet === 'change' && html`<${LoginDetailsSheet} login=${login} onClose=${() => setSheet(null)} />`}
+    ${sheet === 'delete' && html`<${DeleteBudgetSheet} name=${household.settings.household} onClose=${() => setSheet(null)} />`}
+  </${Section}>`;
 }
 
 function HouseholdForm() {
@@ -205,8 +290,8 @@ function Accounts() {
 }
 
 function Data() {
-  const { year } = useStore();
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const restore = (e) => {
     const file = e.target.files[0];
     e.target.value = '';
@@ -220,8 +305,8 @@ function Data() {
     <div class="list">
       <button class="add-row" onClick=${() => setImporting(true)}><${Icon} name="upload" size=${18} />
         <span class="spacer">${t('settings.importSheet')}<div class="small muted" style="font-weight:400">${t('settings.importSheetHint')}</div></span></button>
-      <a class="add-row" href=${`/api/export/${year}.csv`} download style="text-decoration:none"><${Icon} name="table" size=${18} />
-        <span class="spacer">${t('settings.exportCsv', { year })}</span></a>
+      <button class="add-row" onClick=${() => setExporting(true)}><${Icon} name="table" size=${18} />
+        <span class="spacer">${t('export.title')}<div class="small muted" style="font-weight:400">${t('export.short')}</div></span></button>
       <a class="add-row" href="/api/export" download style="text-decoration:none"><${Icon} name="download" size=${18} />
         <span class="spacer">${t('settings.backup')}<div class="small muted" style="font-weight:400">${t('settings.backupHint')}</div></span></a>
       <label class="add-row" style="cursor:pointer"><${Icon} name="upload" size=${18} />
@@ -229,16 +314,12 @@ function Data() {
         <input type="file" accept=".json,application/json" class="sr-only" onChange=${restore} /></label>
     </div>
     ${importing && html`<${ImportSheet} onClose=${() => setImporting(false)} />`}
+    ${exporting && html`<${ExportSheet} onClose=${() => setExporting(false)} />`}
   </${Section}>`;
 }
 
 export function Settings() {
   const { household } = useStore();
-  const session = useData('/api/session');
-  const logout = async () => {
-    await api.post('/api/logout');
-    location.reload();
-  };
   return html`<div style="max-width:760px">
     <${HouseholdForm} key=${JSON.stringify(household.settings)} />
     <${People} />
@@ -246,9 +327,9 @@ export function Settings() {
     <${BankSettings} />
     <${Categories} />
     <${Data} />
+    <${LoginSection} />
     <section class="card" style="margin-bottom:12px">
-      <div class="row"><${Icon} name="info" /><strong class="spacer">Jetbuddy ${household.version}</strong>
-        ${session.data?.auth_required && html`<button class="btn small" onClick=${logout}><${Icon} name="logout" size=${16} />${t('settings.logout')}</button>`}</div>
+      <div class="row"><${Icon} name="info" /><strong class="spacer">Jetbuddy ${household.version}</strong></div>
       <p class="small secondary" style="margin:8px 0 0">${t('settings.about')} <a href="https://github.com/kasperskytte/jetbuddy" target="_blank" rel="noopener">GitHub</a></p>
     </section>
   </div>`;

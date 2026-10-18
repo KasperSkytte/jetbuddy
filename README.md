@@ -39,8 +39,12 @@ the sums and the charts.
   saved and the savings rate, fixed versus variable expenses, per person, per
   category, the largest expenses, and trends and comparisons across years.
   Every chart can be shown as a table.
-- **Import** from Excel/CSV/Google Sheets, export a year to CSV, and back up or
-  restore everything as one JSON file.
+- **Excel export for the bank.** When you apply for a loan: a tidy workbook with
+  the key figures per month and year, the whole budget by category or person,
+  what the bank actually paid against the plan (showing that you keep to it),
+  and the account balances month by month.
+- **Import** from Excel/CSV/Google Sheets, and back up or restore everything as
+  one JSON file.
 - Installs as an app on the phone's home screen. Light and dark mode. English
   and Danish, any currency and number format.
 - Your data stays on your server: one SQLite file, no accounts, no tracking,
@@ -59,27 +63,34 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/data
-    environment:
-      JETBUDDY_PASSWORD: ""   # optional, see below
 ```
 
 ```bash
 docker compose up -d
 ```
 
-Open `http://<server>:8000` and set up the household. To build the image
+Open `http://<server>:8000` and create your budget: the household, the people
+in it, and a username and password that everyone in the household shares. To build the image
 yourself instead, run `docker build -t jetbuddy .` in this folder.
 
 ### Settings
 
 | Variable | Default | |
 |---|---|---|
-| `JETBUDDY_PASSWORD` | *(empty)* | Require this password to log in. Empty means anyone who can reach the app can use it, which is fine on a home network you trust. |
-| `JETBUDDY_SECRET` | *(generated)* | Key that signs login cookies. Generated into the data folder if not set. |
-| `JETBUDDY_DATA_DIR` | `/data` | Where the database lives. |
-| `JETBUDDY_EB_APP_ID`, `JETBUDDY_EB_KEY_FILE` | | Enable Banking application id and path to its private key, if you'd rather not upload them in Settings. |
+| `JETBUDDY_ALLOW_NEW_BUDGETS` | `true` | Whether new budgets can be created from the login page. The first budget can always be created. Turn it off if the server is reachable from the internet. |
 | `JETBUDDY_BANK_SYNC_HOURS` | `6` | How often to sync connected banks. `0` turns automatic sync off. |
 | `JETBUDDY_PUBLIC_URL` | *(from the request)* | The address people use, e.g. `https://jetbuddy.example.home`, if the bank's redirect URL comes out wrong behind your proxy. |
+| `JETBUDDY_SECRET` | *(generated)* | Key that signs login cookies. Generated into the data folder if not set. |
+| `JETBUDDY_DATA_DIR` | `/data` | Where the data lives. |
+
+### Budgets and logins
+
+Each budget (household) has one login that everyone in it shares, and one
+server can hold several budgets, each with its own data, accounts and bank
+connection. Phones stay logged in for a year. Change the username or password,
+or delete the budget, under **Settings → Login**; a new password logs out all
+other devices. After 10 wrong passwords from one address, logging in pauses
+for 15 minutes.
 
 ### On the phone
 
@@ -95,9 +106,10 @@ offline start-up.
 
 ### Backups
 
-Everything is in `data/jetbuddy.db`. Copy that file (preferably while the
-container is stopped), or use **Settings → Download a backup** for a JSON file
-that **Restore a backup** reads back in.
+Everything is in the `data` folder: `jetbuddy.db` lists the budgets and their
+logins, and `budgets/<id>/` holds each budget. Copy the folder (preferably while
+the container is stopped), or use **Settings → Download a backup** for a JSON
+file of one budget that **Restore a backup** reads back in.
 
 ## Bringing in an old spreadsheet
 
@@ -140,17 +152,22 @@ whose free *restricted* mode covers accounts you link yourself, which is
 what a household needs. You log in with the bank's own login (MitID in
 Denmark); Jetbuddy can only read, never move money.
 
-Setting it up, once (**Settings → Bank** walks you through it):
+Setting it up takes about ten minutes, once, and happens entirely in the app:
+**Settings → Bank** walks you through Enable Banking's registration form field
+by field. In short:
 
 1. Create an account at [enablebanking.com](https://enablebanking.com/sign-in/).
-2. In the Control Panel, open **API applications** and add one: environment
-   **Production**, any name, and as redirect URL the address Settings shows,
-   e.g. `https://jetbuddy.example.home/api/bank/callback`. Registering
-   downloads the application's private key (a `.pem` file).
-3. Choose **Activate by linking accounts** on the application and log in to
-   your bank, so the application may read those accounts.
-4. In Jetbuddy, paste the application id, choose the `.pem` file, then
-   **Connect a bank**.
+2. In Jetbuddy, make a key: the private key stays on your server, and you get a
+   certificate to give Enable Banking.
+3. In Enable Banking's Control Panel, add an application: **Production**,
+   *Generate outside the browser and import public certificate*, the redirect
+   URL Jetbuddy shows (e.g. `https://jetbuddy.example.home/api/bank/callback`;
+   it only has to work in your own browser, so a home-network address is
+   fine), and the certificate.
+4. Choose **Activate by linking accounts** on the application and log in to your
+   bank, so the application may read those accounts.
+5. Paste the application ID into Jetbuddy. It tests the connection right away;
+   then **Connect a bank**.
 
 Then for each bank account choose which Jetbuddy account its balance belongs
 to, and whether its transactions should be sorted onto the budget (on for the

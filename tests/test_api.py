@@ -2,6 +2,8 @@ import io
 
 import openpyxl
 
+from tests.conftest import PASSWORD, new_budget
+
 
 def member(state, name):
     return next(m for m in state["members"] if m["name"] == name)
@@ -26,7 +28,6 @@ def test_setup_creates_members_shared_categories_accounts(client, household):
     assert member(household, "Shared")["is_shared"]
     assert {c["kind"] for c in household["categories"]} == {"income", "expense"}
     assert sorted(a["kind"] for a in household["accounts"]) == ["main", "savings"]
-    assert client.post("/api/setup", json={"household": "x", "members": ["a"]}).status_code == 409
 
 
 def test_amounts_are_exact_and_summed(client, household):
@@ -149,10 +150,99 @@ def test_import_spreadsheet_merges_items_across_years(client, household):
     assert items[0]["prev"] == [149.95] * 12
 
 
-def test_password(client, monkeypatch):
-    monkeypatch.setenv("JETBUDDY_PASSWORD", "hunter2")
+def test_login_required(client):
+    assert client.get("/api/session").json() == {"logged_in": False, "budget": None, "has_budgets": False, "can_create": True}
     assert client.get("/api/state").status_code == 401
-    assert client.get("/api/session").json() == {"auth_required": True, "logged_in": False}
-    assert client.post("/api/login", json={"password": "nope"}).status_code == 401
-    assert client.post("/api/login", json={"password": "hunter2"}).status_code == 200
-    assert client.get("/api/state").status_code == 200
+
+
+def test_login_and_logout(client, household):
+    assert client.get("/api/session").json()["logged_in"]  # creating a budget logs in
+    client.post("/api/logout")
+    assert client.get("/api/state").status_code == 401
+    assert client.post("/api/login", json={"login": "test", "password": "nope"}).status_code == 401
+    assert client.post("/api/login", json={"login": "nobody", "password": PASSWORD}).status_code == 401
+    assert client.post("/api/login", json={"login": " TEST ", "password": PASSWORD}).status_code == 200
+    assert client.get("/api/state").json()["settings"]["household"] == "Test"
+
+
+def test_too_many_wrong_passwords(client, household, monkeypatch):
+    monkeypatch.setattr("app.main.time.sleep", lambda s: None)
+    for _ in range(10):
+        client.post("/api/login", json={"login": "test", "password": "nope"})
+    assert client.post("/api/login", json={"login": "test", "password": PASSWORD}).status_code == 429
+
+
+def test_budgets_are_separate(client, household):
+    add(client, household, "Alex", "income", "Salary", [1000] * 12)
+    client.post("/api/logout")
+    other = new_budget(client, login="other", members=["Pat"])
+    assert other.status_code == 200
+    assert client.get("/api/years/2027/items").json() == []
+    assert new_budget(client, login="OTHER").status_code == 409  # username taken, case-insensitively
+    client.post("/api/login", json={"login": "test", "password": PASSWORD})
+    assert len(client.get("/api/years/2027/items").json()) == 1
+
+
+def test_new_budgets_can_be_turned_off(client, household, monkeypatch):
+    monkeypatch.setenv("JETBUDDY_ALLOW_NEW_BUDGETS", "false")
+    assert client.get("/api/session").json()["can_create"] is False
+    assert new_budget(client, login="other").status_code == 403
+
+
+def test_change_password_logs_out_other_devices(client, household):
+    other_device = client.cookies.get("jetbuddy_session")
+    r = client.put("/api/login-details", json={"current_password": PASSWORD, "password": "new password!", "login": "hansen"})
+    assert r.status_code == 200
+    assert client.get("/api/state").status_code == 200  # this device stays in
+    client.cookies.set("jetbuddy_session", other_device)
+    assert client.get("/api/state").status_code == 401
+    assert client.post("/api/login", json={"login": "hansen", "password": "new password!"}).status_code == 200
+    bad = client.put("/api/login-details", json={"current_password": "wrong", "password": "whatever123"})
+    assert bad.status_code == 401
+
+
+def test_delete_budget(client, household, tmp_path):
+    budget_id = client.get("/api/session").json()["budget"]["id"]
+    assert (tmp_path / "budgets" / str(budget_id)).exists()
+    assert client.post("/api/budget/delete", json={"password": "wrong"}).status_code == 401
+    assert client.post("/api/budget/delete", json={"password": PASSWORD}).status_code == 200
+    assert not (tmp_path / "budgets" / str(budget_id)).exists()
+    assert client.get("/api/session").json()["has_budgets"] is False
+
+
+def test_short_password_rejected(client):
+    r = client.post("/api/budgets", json={"household": "x", "members": ["a"], "login": "x1", "password": "short"})
+    assert r.status_code == 422
+
+
+def test_excel_export(client, household):
+    savings = account(household, "savings")
+    cats = {c["name"]: c["id"] for c in household["categories"]}
+    add(client, household, "Alex", "income", "Salary", [31250] * 12)
+    add(client, household, "Sam", "income", "Salary", [22000] * 12)
+    add(client, household, "Shared", "expense", "Rent", [12000] * 12, category_id=cats["Housing"], fixed=True)
+    add(client, household, "Shared", "expense", "Groceries", [8500] * 12, category_id=cats["Groceries"])
+    add(client, household, "Alex", "expense", "Phone", [149.95] * 12, category_id=cats["Subscriptions"], fixed=True)
+    add(client, household, "Shared", "expense", "Savings", [9000] * 12, category_id=cats["Savings"], account_id=savings["id"])
+    r = client.get("/api/export/2027.xlsx")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/vnd.openxmlformats")
+    assert "budget-2027.xlsx" in r.headers["content-disposition"]
+    wb = openpyxl.load_workbook(io.BytesIO(r.content))
+    assert wb.sheetnames[:2] == ["Summary", "Budget"]
+    summary = {row[0]: row[1:] for row in wb["Summary"].iter_rows(values_only=True) if row[0]}
+    assert summary["Total income"][:2] == (53250, 639000)
+    assert summary["Total expenses"][1] == 12000 * 12 + 8500 * 12 + 149.95 * 12 + 9000 * 12
+    assert summary["   of which fixed expenses"][1] == (12000 + 149.95) * 12
+    budget = [row for row in wb["Budget"].iter_rows(values_only=True)]
+    labels = [row[0] for row in budget]
+    # Expenses are categorised, so grouped by category in the categories' order.
+    assert labels.index("Housing") < labels.index("Groceries") < labels.index("Subscriptions")
+    surplus = next(row for row in budget if row[0] == "Surplus (income − expenses)")
+    assert surplus[3] == 53250 - (12000 + 8500 + 149.95 + 9000)
+    rent = next(row for row in budget if row[0] == "Rent")
+    assert rent[1] == "Shared" and rent[2] == "✓"
+    # Grouped by person when asked.
+    wb2 = openpyxl.load_workbook(io.BytesIO(client.get("/api/export/2027.xlsx?group=member").content))
+    labels2 = [row[0] for row in wb2["Budget"].iter_rows(values_only=True)]
+    assert "Housing" not in labels2 and labels2.count("Shared") >= 1
