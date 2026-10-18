@@ -5,6 +5,7 @@ import { money, signedMoney, percent, monthNames } from '../fmt.js';
 import { ColumnChart, LineChart, ChartCard, ChartTable, Legend } from '../charts.js';
 import { Empty, seriesColor } from '../ui.js';
 import { members, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
+import { ReliabilityBanner } from './checks.js';
 
 export function Trends() {
   const { year, household } = useStore();
@@ -38,6 +39,7 @@ export function Trends() {
   const personSeries = people.map((m) => ({ name: m.name, color: seriesColor(m.color), values: data.map((y) => y.members.find((x) => x.id === m.id)?.expense || 0) }))
 
   return html`<div class=${trends.loading ? 'refetching' : ''}>
+    <${ReliabilityBanner} />
     <div class="grid-2">
       <${ChartCard} title=${t('trends.perYear')} table=${html`<${ChartTable} labels=${labels} series=${yearSeries} total=${false} />`}>
         <${Legend} series=${yearSeries} />

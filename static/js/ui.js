@@ -1,5 +1,6 @@
 // Small shared components: icons, modal sheet, toasts, amount input, chips.
 import { html, useState, useEffect, useRef, render } from './lib.js';
+import { useStore, setStore } from './store.js';
 import { amount, parseAmount } from './fmt.js';
 import { t, has } from './i18n.js';
 
@@ -146,7 +147,7 @@ export function Sheet({ title, onClose, children, footer, wide = false }) {
  * on blur or Enter (which also moves to the next box, so a column of amounts
  * can be typed in one go).
  */
-export function AmountInput({ value, onSave, placeholder = '–', className = 'amount-input', label, manual = false, autoFocus = false }) {
+export function AmountInput({ value, onSave, placeholder = '–', className = 'amount-input', label, manual = false, autoFocus = false, problem = false }) {
   const [text, setText] = useState(amount(value));
   const [focused, setFocused] = useState(false);
   const [state, setState] = useState(''); // '', 'saved', 'invalid'
@@ -169,6 +170,7 @@ export function AmountInput({ value, onSave, placeholder = '–', className = 'a
     if (Number.isNaN(parsed)) {
       dirty.current = true;
       setState('invalid');
+      toast(t('amount.notSaved', { text }), { error: true });
       return;
     }
     setText(amount(parsed));
@@ -198,7 +200,7 @@ export function AmountInput({ value, onSave, placeholder = '–', className = 'a
     }
   };
 
-  return html`<input ref=${ref} class=${[className, state, manual ? 'manual' : ''].join(' ')}
+  return html`<input ref=${ref} class=${[className, state, manual ? 'manual' : '', problem && value == null ? 'invalid' : ''].join(' ')}
     type="text" inputmode="decimal" enterkeyhint="next" autocomplete="off"
     aria-label=${label} placeholder=${placeholder} value=${text}
     onFocus=${(e) => { setFocused(true); setState(''); requestAnimationFrame(() => e.target.select()); }}
@@ -258,4 +260,23 @@ export function YearStepper({ year, onChange }) {
 
 export function Empty({ title, children }) {
   return html`<div class="empty"><div class="big">${title}</div>${children}</div>`;
+}
+
+/** True on screens wide enough for two columns. */
+export function useWide(query = '(min-width: 900px)') {
+  const [wide, setWide] = useState(() => matchMedia(query).matches);
+  useEffect(() => {
+    const mq = matchMedia(query);
+    const fn = () => setWide(mq.matches);
+    mq.addEventListener('change', fn);
+    return () => mq.removeEventListener('change', fn);
+  }, []);
+  return wide;
+}
+
+/** On phones, income and expenses are shown one at a time; this picks which. */
+export function KindSwitch() {
+  const { kindTab } = useStore();
+  return html`<div class="kind-switch"><${Segmented} value=${kindTab || 'expense'} onChange=${(v) => setStore({ kindTab: v })} label=${t('common.show')}
+    options=${[{ value: 'income', label: t('common.income') }, { value: 'expense', label: t('common.expenses') }]} /></div>`;
 }

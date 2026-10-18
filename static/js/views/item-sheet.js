@@ -11,20 +11,31 @@ import { members, categories, EVERY, applyPattern, detectPattern } from '../mode
  * keyboard on phones) that looks like a tile until focused. Enter moves on
  * to the next month.
  */
-function MonthTile({ label, longLabel, value, onCommit }) {
+function MonthTile({ label, longLabel, value, onCommit, onInvalid, problem }) {
   const [text, setText] = useState(amount(value));
-  const [focused, setFocused] = useState(false);
+  const [bad, setBad] = useState(false); // typed something that isn't an amount: stays red, blocks saving
   const skip = useRef(false);
   useEffect(() => {
-    if (!focused) setText(amount(value));
-  }, [value, focused]);
+    setText(amount(value));
+    setBad(false);
+    onInvalid(false);
+  }, [value]);
   const commit = () => {
-    const v = parseAmount(text);
-    if (skip.current || Number.isNaN(v)) {
+    if (skip.current) {
       skip.current = false;
       setText(amount(value));
+      setBad(false);
+      onInvalid(false);
       return;
     }
+    const v = parseAmount(text);
+    if (Number.isNaN(v)) {
+      setBad(true);
+      onInvalid(true);
+      return;
+    }
+    setBad(false);
+    onInvalid(false);
     if (v !== (value ?? null)) onCommit(v);
   };
   const keydown = (e) => {
@@ -42,12 +53,16 @@ function MonthTile({ label, longLabel, value, onCommit }) {
       e.target.blur();
     }
   };
-  return html`<label class=${'mtile' + (value != null ? ' on' : '') + (focused ? ' editing' : '')}>
+  // An import cell that couldn't be read: shown until an amount is typed.
+  const missing = problem && value == null && !text;
+  return html`<label class=${'mtile' + (value != null ? ' on' : '') + (bad || missing ? ' problem' : '')}
+      title=${missing ? t('item.unreadableTile', { raw: problem }) : null}>
     <span class="m">${label}</span>
-    <input type="text" inputmode="decimal" enterkeyhint="next" autocomplete="off" value=${text} placeholder="–" aria-label=${longLabel}
-      class=${Number.isNaN(parseAmount(text)) ? 'invalid' : ''}
-      onFocus=${(e) => { setFocused(true); requestAnimationFrame(() => e.target.select()); }}
-      onBlur=${() => { setFocused(false); commit(); }}
+    <input type="text" inputmode="decimal" enterkeyhint="next" autocomplete="off" value=${text}
+      placeholder=${missing ? `“${problem}”` : '–'} aria-label=${longLabel}
+      class=${bad || Number.isNaN(parseAmount(text)) ? 'invalid' : ''}
+      onFocus=${(e) => requestAnimationFrame(() => e.target.select())}
+      onBlur=${commit}
       onInput=${(e) => setText(e.target.value)} onKeyDown=${keydown} />
   </label>`;
 }
@@ -89,7 +104,15 @@ export function ItemSheet({ year, item, member, kind, focusMonth, initial, onClo
   const prev = item?.prev || Array(12).fill(null);
   const hasPrev = prev.some((v) => v != null);
   const patternValue = parseAmount(pattern.text);
-  const invalid = mode === 'pattern' && Number.isNaN(patternValue);
+  const [badMonths, setBadMonths] = useState(() => new Set());
+  const markBad = (i, isBad) => setBadMonths((old) => {
+    if (old.has(i) === isBad) return old;
+    const next = new Set(old);
+    isBad ? next.add(i) : next.delete(i);
+    return next;
+  });
+  const invalid = (mode === 'pattern' && Number.isNaN(patternValue)) || badMonths.size > 0;
+  const unreadable = item?.unreadable || Array(12).fill(null);
 
   const updatePattern = (patch) => {
     const next = { ...pattern, ...patch };
@@ -232,8 +255,11 @@ export function ItemSheet({ year, item, member, kind, focusMonth, initial, onClo
           <span class="small num"><span class="muted">${t('item.yearTotal', { year })}</span> <strong>${money(sum(values))}</strong></span>
         </div>
         <div class="mtiles">
-          ${values.map((v, i) => html`<${MonthTile} key=${i} label=${short[i]} longLabel=${long[i]} value=${v} onCommit=${(val) => editMonth(i, val)} />`)}
+          ${values.map((v, i) => html`<${MonthTile} key=${i} label=${short[i]} longLabel=${long[i]} value=${v} onCommit=${(val) => editMonth(i, val)}
+            onInvalid=${(isBad) => markBad(i, isBad)} problem=${unreadable[i]} />`)}
         </div>
+        ${badMonths.size > 0 && html`<p class="small bad" style="margin:10px 0 0">${t('item.fixRed')}</p>`}
+        ${badMonths.size === 0 && unreadable.some((r, i) => r && values[i] == null) && html`<p class="small bad" style="margin:10px 0 0">${t('item.unreadableHint')}</p>`}
         ${hasPrev && html`<button class="btn small" style="margin-top:12px" onClick=${copyPrev}><${Icon} name="copy" size=${16} />${t('item.copyPrev', { year: year - 1 })}</button>`}
       </div>
 

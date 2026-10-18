@@ -31,6 +31,8 @@ function describe(f) {
       return t('checks.large', { where: whereText(f.where), value: amount(f.values[0]), income: money(f.income) });
     case 'balance':
       return t('checks.balance', { where: whereText(f.where), value: money(f.values[0]), expected: money(f.expected) });
+    case 'unreadable':
+      return t('checks.unreadable', { where: whereText(f.where), raw: f.raw.map((r) => `“${r}”`).join(', ') });
   }
   return '';
 }
@@ -70,7 +72,9 @@ function Finding({ f, onResult, onOpen }) {
     <div class="row wrap">
       ${f.options.map((o, i) => html`<button key=${i} class=${'btn small' + (i === 0 ? ' primary' : '')} disabled=${busy} onClick=${() => fix(o)}>${optionLabel(f, o)}</button>`)}
       ${f.item_id && html`<button class="btn small" disabled=${busy} onClick=${() => onOpen(f)}>${t('checks.open')}</button>`}
-      <button class="btn small ghost" disabled=${busy} onClick=${() => act('/api/checks/dismiss', { id: f.id })}>${t('checks.dismiss')}</button>
+      <button class="btn small ghost" disabled=${busy}
+        onClick=${() => act('/api/checks/dismiss', f.type === 'unreadable' ? { id: f.id, item_id: f.item_id, where: f.where } : { id: f.id })}>
+        ${f.type === 'unreadable' ? t('checks.ignoreGap') : t('checks.dismiss')}</button>
     </div>
   </div>`;
 }
@@ -105,4 +109,22 @@ export function ChecksSheet({ onClose }) {
     ${opening && html`<${ItemSheet} year=${opening.year} item=${opening.item} onClose=${() => setOpening(null)}
       onChanged=${() => { result.reload(); bump(); }} />`}
   </${Sheet}>`;
+}
+
+/**
+ * At the top of the statistics: while amounts are missing or look wrong,
+ * the numbers below aren't to be trusted, and this says so.
+ */
+export function ReliabilityBanner() {
+  const result = useData('/api/checks');
+  const [open, setOpen] = useState(false);
+  const n = result.data?.findings.length || 0;
+  if (!n) return null;
+  return html`<div class="banner unreliable">
+    <${Icon} name="info" />
+    <div class="text"><strong>${t('checks.unreliable')}</strong>
+      <div class="small">${t('checks.unreliableText', { n })}</div></div>
+    <button class="btn small primary" onClick=${() => setOpen(true)}>${t('checks.title')}</button>
+    ${open && html`<${ChecksSheet} onClose=${() => { setOpen(false); result.reload(); }} />`}
+  </div>`;
 }

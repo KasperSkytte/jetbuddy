@@ -28,6 +28,7 @@ const store = {
   planMember: saved('planMember', null),
   monthMember: saved('monthMember', null),
   theme: saved('theme', 'auto'),
+  kindTab: saved('kindTab', 'expense'), // phones: income or expenses
   version: 0,
 };
 const subscribers = new Set();
@@ -38,7 +39,7 @@ export function getStore() {
 
 export function setStore(patch) {
   Object.assign(store, patch);
-  for (const key of ['planMember', 'monthMember', 'theme']) if (key in patch) save(key, patch[key]);
+  for (const key of ['planMember', 'monthMember', 'theme', 'kindTab']) if (key in patch) save(key, patch[key]);
   subscribers.forEach((fn) => fn());
 }
 

@@ -3,7 +3,7 @@ import { api } from '../api.js';
 import { useStore, useData, setStore } from '../store.js';
 import { t } from '../i18n.js';
 import { money, signedMoney, monthNames, amount } from '../fmt.js';
-import { AmountInput, Chips, Dot, Icon, Empty, seriesColor } from '../ui.js';
+import { AmountInput, Chips, Dot, Icon, Empty, seriesColor, useWide, KindSwitch } from '../ui.js';
 import { members, itemsOf, monthTotals, categoryById, accountById, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
 import { CopyYearBanner } from './plan.js';
@@ -63,41 +63,38 @@ function ItemRow({ item, month, year, household, onSaved, onOpen }) {
         ${item.note && html`<${Icon} name="note" size=${13} />`}
         ${meta && html`<span class="ellipsis">${meta}</span>`}
       </div>
+      ${item.unreadable?.[month - 1] && planned == null && html`<div class="small bad" style="margin-top:2px">
+        ${t('month.unreadable', { raw: item.unreadable[month - 1] })}</div>`}
       ${actual != null && html`<div class="bank-line">
         <span class=${matches ? 'good' : ''}><${Icon} name=${matches ? 'check' : 'bank'} size=${13} stroke=${2.2} /> ${t('month.bankPaid', { amount: amount(actual) })}</span>
         ${!matches && html`<button class="btn small ghost" onClick=${(e) => { e.stopPropagation(); save(actual); }}>${t('month.useBank')}</button>`}
       </div>`}
     </div>
-    <${AmountInput} value=${item.amounts[month - 1]} onSave=${save} label=${item.name}
+    <${AmountInput} value=${item.amounts[month - 1]} onSave=${save} label=${item.name} problem=${!!item.unreadable?.[month - 1]}
       placeholder=${prev != null ? amount(prev) : '–'} />
   </div>`;
 }
 
-function MemberSection({ member, items, month, year, household, onSaved, onOpen, onAdd }) {
+/** One person's income or expenses for the month. */
+function MemberSection({ member, kind, items, month, year, household, onSaved, onOpen, onAdd }) {
   const [showAll, setShowAll] = useState(false);
-  const totals = monthTotals(items, month - 1);
-  const groups = ['income', 'expense'].map((kind) => {
-    const all = items.filter((i) => i.kind === kind);
-    const withAmount = all.filter((i) => i.amounts[month - 1] != null);
-    return { kind, all, shown: showAll ? all : withAmount, hidden: all.length - withAmount.length };
-  });
-  const hidden = groups.reduce((n, g) => n + g.hidden, 0);
+  const all = items.filter((i) => i.kind === kind);
+  const withAmount = all.filter((i) => i.amounts[month - 1] != null || i.unreadable?.[month - 1]);
+  const shown = showAll ? all : withAmount;
+  const hidden = all.length - withAmount.length;
+  const totals = monthTotals(all, month - 1);
   return html`<section class="card flush" style="margin-bottom:12px">
     <div class="member-head">
       <${Dot} color=${seriesColor(member.color)} size=${12} />
       <h2 class="ellipsis">${member.name}</h2>
-      <span class=${'num small ' + (totals.net > 0.5 ? 'good' : totals.net < -0.5 ? 'bad' : 'muted')} style="font-weight:600">${signedMoney(totals.net)}</span>
+      <span class="num small muted" style="font-weight:600">${money(kind === 'income' ? totals.income : totals.expense)}</span>
     </div>
-    ${groups.map((g) => (g.shown.length > 0 || (showAll && g.all.length > 0)) && html`<div key=${g.kind}>
-      <div class="group-label">${g.kind === 'income' ? t('common.income') : t('common.expenses')}
-        <span class="total">${money(g.kind === 'income' ? totals.income : totals.expense)}</span></div>
-      <div class="list">${g.shown.map((item) => html`<${ItemRow} key=${item.id} item=${item} month=${month} year=${year}
-        household=${household} onSaved=${onSaved} onOpen=${onOpen} />`)}</div>
-    </div>`)}
-    ${items.length === 0 && html`<p class="small muted" style="padding:4px 16px 8px;margin:0">${t('month.noItems')}</p>`}
+    <div class="list">${shown.map((item) => html`<${ItemRow} key=${item.id} item=${item} month=${month} year=${year}
+      household=${household} onSaved=${onSaved} onOpen=${onOpen} />`)}</div>
+    ${all.length === 0 && html`<p class="small muted" style="padding:4px 16px 8px;margin:0">${t('month.noItems')}</p>`}
     ${hidden > 0 && html`<button class="add-row" style="color:var(--text-2)" onClick=${() => setShowAll(!showAll)}>
       <${Icon} name=${showAll ? 'up' : 'down'} size=${18} />${showAll ? t('month.hideEmpty') : t('month.showEmpty', { n: hidden })}</button>`}
-    <button class="add-row" onClick=${() => onAdd(member)}><${Icon} name="plus" size=${18} />${t('month.addItem')}</button>
+    <button class="add-row" onClick=${() => onAdd(member, kind)}><${Icon} name="plus" size=${18} />${kind === 'income' ? t('plan.addIncome') : t('plan.addExpense')}</button>
   </section>`;
 }
 
@@ -155,6 +152,23 @@ export function Month() {
 
   const list = items.stale ? null : items.data;
   const totals = list ? monthTotals(list, month - 1) : null;
+  const wide = useWide();
+  const onAdd = (member, kind) => setEditing({ member, kind });
+
+  // A column of income or expenses, by person. People with nothing on that
+  // side (the kids' income, say) are left out unless picked in the filter.
+  const column = (kind) => {
+    const shown = people.filter((m) => (filter === 'all' ? itemsOf(list, m.id).some((i) => i.kind === kind) : m.id === filter));
+    if (!shown.length) {
+      return html`<section class="card flush" style="margin-bottom:12px">
+        <p class="small muted" style="padding:14px 16px 4px;margin:0">${kind === 'income' ? t('month.noIncome') : t('month.noExpenses')}</p>
+        <button class="add-row" onClick=${() => onAdd(people[0], kind)}><${Icon} name="plus" size=${18} />${kind === 'income' ? t('plan.addIncome') : t('plan.addExpense')}</button>
+      </section>`;
+    }
+    return shown.map((m) => html`<${MemberSection} key=${m.id + '-' + kind + '-' + month} member=${m} kind=${kind}
+      items=${itemsOf(list, m.id)} month=${month} year=${year} household=${household}
+      onSaved=${onSaved} onOpen=${(item) => setEditing({ item })} onAdd=${onAdd} />`);
+  };
 
   return html`<div>
     <${MonthPicker} month=${month} year=${year} onChange=${(m, y) => setStore({ month: m, year: y })} />
@@ -177,9 +191,12 @@ export function Month() {
     </div>
     ${!list ? html`<div class="loading">${t('common.loading')}</div>` : html`
       ${list.length === 0 && html`<${CopyYearBanner} year=${year} />`}
-      ${people.filter((m) => filter === 'all' || m.id === filter).map((m) => html`<${MemberSection} key=${m.id + '-' + month}
-        member=${m} items=${itemsOf(list, m.id)} month=${month} year=${year} household=${household}
-        onSaved=${onSaved} onOpen=${(item) => setEditing({ item })} onAdd=${(member) => setEditing({ member, kind: 'expense' })} />`)}
+      ${wide ? html`<div class="plan-cols">${['income', 'expense'].map((kind) => html`<div key=${kind}>
+          <div class="col-head"><h2><${Dot} color=${kind === 'income' ? INCOME_COLOR : EXPENSE_COLOR} size=${10} />
+            ${kind === 'income' ? t('common.income') : t('common.expenses')}</h2>
+            <span class="num secondary" style="font-weight:650">${totals ? money(kind === 'income' ? totals.income : totals.expense) : ''}</span></div>
+          ${column(kind)}</div>`)}</div>`
+        : html`<${KindSwitch} />${column(store.kindTab || 'expense')}`}
       ${filter === 'all' && html`<${Balances} summary=${summary.data} month=${month} year=${year} household=${household} bank=${bank.data} onSaved=${summary.reload} />`}
     `}
     ${editing && html`<${ItemSheet} year=${year} item=${editing.item} member=${editing.member} kind=${editing.kind}

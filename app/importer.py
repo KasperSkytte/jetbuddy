@@ -145,10 +145,12 @@ def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None,
         if not label:
             continue
         values: list[float | None] = [None] * 12
+        invalid: dict[int, str] = {}  # month -> the text that couldn't be read
         for c, month in month_cols.items():
             v = parse_number(row[c], decimal, both) if c < len(row) else None
             if v is None and c < len(row) and isinstance(row[c], str) and re.search(r"\d", row[c]):
-                unreadable.append(row[c].strip())  # has digits, but isn't a valid amount: skipped
+                unreadable.append(row[c].strip())  # has digits, but isn't a valid amount
+                invalid[month] = row[c].strip()[:100]
             if c < len(row) and other_decimal(row[c], decimal):
                 suspects.append(str(row[c]).strip())
             is_formula = bool(formulas) and c < len(formulas[r]) and str(formulas[r][c] or "").startswith("=")
@@ -157,7 +159,7 @@ def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None,
             if v is not None or is_formula:
                 value_cells += 1
                 formula_cells += is_formula
-        rows.append({"name": label[:200], "amounts": values})
+        rows.append({"name": label[:200], "amounts": values, "invalid": invalid})
 
     if not rows:
         return None

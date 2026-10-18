@@ -134,39 +134,42 @@ function LoginSection() {
 function HouseholdForm() {
   const { household, theme } = useStore();
   const s = household.settings;
-  // What the form starts from, with defaults for settings never saved; the
-  // save button is for changes against this.
-  const [initial] = useState(() => ({
+  const [form, setForm] = useState(() => ({
     household: s.household || '',
     language: s.language || 'en',
     decimal: s.decimal || defaultDecimal(s.language || 'en'),
     decimal_both: s.decimal_both || 'last',
     currency: s.currency || 'USD',
   }));
-  const [form, setForm] = useState(initial);
-  const set = (patch) => setForm((f) => ({ ...f, ...patch }));
-  const dirty = Object.keys(form).some((k) => form[k] !== initial[k]);
-  const save = () => run(async () => {
-    const settings = await api.put('/api/settings', form);
-    applySettings(settings);
-  }, () => toast(t('common.saved')));
+  // Every change is saved right away; the name when leaving the field.
+  const save = (patch) => {
+    setForm((f) => ({ ...f, ...patch }));
+    run(async () => {
+      const settings = await api.put('/api/settings', patch);
+      applySettings(settings);
+    }, () => toast(t('common.saved')));
+  };
+  const saveName = () => {
+    const name = form.household.trim();
+    if (name && name !== (s.household || '')) save({ household: name });
+    else setForm((f) => ({ ...f, household: s.household || '' }));
+  };
   return html`<${Section} title=${t('settings.household')} icon="home">
     <div class="form-grid two" style="padding:6px 16px 16px">
       <label class="field"><span>${t('settings.householdName')}</span>
-        <input class="input" value=${form.household} onInput=${(e) => set({ household: e.target.value })} maxlength="100" /></label>
+        <input class="input" value=${form.household} maxlength="100" onInput=${(e) => setForm((f) => ({ ...f, household: e.target.value }))}
+          onBlur=${saveName} onKeyDown=${(e) => e.key === 'Enter' && e.target.blur()} /></label>
       <label class="field"><span>${t('settings.language')}</span>
-        <select class="input" value=${form.language} onChange=${(e) => set({ language: e.target.value })}>
+        <select class="input" value=${form.language} onChange=${(e) => save({ language: e.target.value })}>
           ${Object.entries(LANGUAGES).map(([k, v]) => html`<option key=${k} value=${k}>${v}</option>`)}</select></label>
       <label class="field"><span>${t('settings.currency')}</span>
-        <select class="input" value=${form.currency} onChange=${(e) => set({ currency: e.target.value })}>
+        <select class="input" value=${form.currency} onChange=${(e) => save({ currency: e.target.value })}>
           ${(CURRENCIES.includes(form.currency) ? CURRENCIES : [form.currency, ...CURRENCIES]).map((c) => html`<option key=${c} value=${c}>${c}</option>`)}</select></label>
-      <div class="field"><span>${t('settings.decimal')}</span><${DecimalChoice} value=${form.decimal} onChange=${(decimal) => set({ decimal })}
-        both=${form.decimal_both} onBothChange=${(decimal_both) => set({ decimal_both })} /></div>
+      <div class="field"><span>${t('settings.decimal')}</span><${DecimalChoice} value=${form.decimal} onChange=${(decimal) => save({ decimal })}
+        both=${form.decimal_both} onBothChange=${(decimal_both) => save({ decimal_both })} /></div>
       <div class="field"><span>${t('settings.theme')}</span>
         <${Segmented} value=${theme} onChange=${(v) => { setStore({ theme: v }); applyTheme(v); }}
           options=${[{ value: 'auto', label: t('settings.themeAuto') }, { value: 'light', label: t('settings.themeLight') }, { value: 'dark', label: t('settings.themeDark') }]} /></div>
-      <div class="field" style="justify-content:flex-end;align-items:flex-start">
-        <button class="btn primary" disabled=${!dirty || !form.household.trim()} onClick=${save}>${t('common.save')}</button></div>
     </div>
   </${Section}>`;
 }
@@ -343,7 +346,7 @@ function Data() {
 export function Settings() {
   const { household } = useStore();
   return html`<div style="max-width:760px">
-    <${HouseholdForm} key=${JSON.stringify(household.settings)} />
+    <${HouseholdForm} />
     <${Section} title=${t('install.title')} icon="addSquare"><div style="padding:0 16px 16px"><${InstallGuide} /></div></${Section}>
     <${People} />
     <${Accounts} />

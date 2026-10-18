@@ -175,9 +175,19 @@ def set_amounts(conn, item_id: int, year: int, values: list[int | None]) -> None
     conn.execute("INSERT OR IGNORE INTO item_years (item_id, year) VALUES (?, ?)", (item_id, year))
 
 
-def item_out(item: dict, amounts: list[int | None], prev: list[int | None], actual: list[int | None] | None = None) -> dict:
+def unreadable_cells(conn, year: int) -> dict[int, list[str | None]]:
+    out: dict[int, list[str | None]] = {}
+    for r in conn.execute("SELECT item_id, month, raw FROM unreadable WHERE year = ?", (year,)):
+        out.setdefault(r["item_id"], [None] * 12)[r["month"] - 1] = r["raw"]
+    return out
+
+
+def item_out(item: dict, amounts: list[int | None], prev: list[int | None], actual: list[int | None] | None = None,
+             unreadable: list[str | None] | None = None) -> dict:
     return {
         **item,
+        # Text an import couldn't read as an amount, per month.
+        "unreadable": unreadable or [None] * 12,
         "fixed": bool(item["fixed"]),
         "amounts": money_list(amounts),
         "prev": money_list(prev),
@@ -645,13 +655,14 @@ def year_items(year: int, conn: sqlite3.Connection = Conn):
     amounts = calc.year_amounts(conn, year)
     prev = calc.year_amounts(conn, year - 1)
     actual = banking.actuals(conn, year)
+    unreadable = unreadable_cells(conn, year)
     items = rows(
         conn.execute(
             f"SELECT * FROM items WHERE id IN ({','.join('?' * len(ids))}) ORDER BY sort, id", ids
         )
     )
     return [
-        item_out(i, amounts.get(i["id"], [None] * 12), prev.get(i["id"], [None] * 12), actual.get(i["id"]))
+        item_out(i, amounts.get(i["id"], [None] * 12), prev.get(i["id"], [None] * 12), actual.get(i["id"]), unreadable.get(i["id"]))
         for i in items
     ]
 
@@ -678,7 +689,7 @@ def _get_item(conn, id: int, year: int) -> dict:
     item = one(conn, "SELECT * FROM items WHERE id = ?", (id,))
     amounts = calc.year_amounts(conn, year).get(id, [None] * 12)
     prev = calc.year_amounts(conn, year - 1).get(id, [None] * 12)
-    return item_out(item, amounts, prev, banking.actuals(conn, year).get(id))
+    return item_out(item, amounts, prev, banking.actuals(conn, year).get(id), unreadable_cells(conn, year).get(id))
 
 
 @app.post("/api/items")
@@ -734,8 +745,14 @@ class AmountsIn(BaseModel):
 @app.put("/api/items/{id}/amounts")
 def put_amounts(id: int, body: AmountsIn, conn: sqlite3.Connection = Conn):
     one(conn, "SELECT id FROM items WHERE id = ?", (id,))
+    values = cents_list(body.amounts)
     with db.transaction(conn):
-        set_amounts(conn, id, body.year, cents_list(body.amounts))
+        set_amounts(conn, id, body.year, values)
+        # A month with an amount now no longer has an unreadable cell.
+        conn.executemany(
+            "DELETE FROM unreadable WHERE item_id = ? AND year = ? AND month = ?",
+            [(id, body.year, m + 1) for m, v in enumerate(values) if v is not None],
+        )
     return _get_item(conn, id, body.year)
 
 
@@ -749,6 +766,8 @@ class AmountIn(BaseModel):
 def put_amount(id: int, body: AmountIn, conn: sqlite3.Connection = Conn):
     one(conn, "SELECT id FROM items WHERE id = ?", (id,))
     with db.transaction(conn):
+        # Any amount typed in, or a deliberate clear, settles an unreadable cell.
+        conn.execute("DELETE FROM unreadable WHERE item_id = ? AND year = ? AND month = ?", (id, body.year, body.month))
         if body.amount is None:
             conn.execute(
                 "DELETE FROM amounts WHERE item_id = ? AND year = ? AND month = ?", (id, body.year, body.month)
@@ -832,7 +851,7 @@ def trends(conn: sqlite3.Connection = Conn):
 
 TABLES = [
     "settings", "members", "categories", "accounts", "account_balances", "items", "item_years", "amounts",
-    "bank_sessions", "bank_accounts", "bank_transactions", "bank_rules",
+    "bank_sessions", "bank_accounts", "bank_transactions", "bank_rules", "unreadable",
 ]
 
 
@@ -903,6 +922,9 @@ async def import_preview(
 class ImportRow(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     amounts: list[float | None]
+    # Cells that couldn't be read as amounts (month -> text): remembered so
+    # the gap shows until it's fixed.
+    invalid: dict[int, str] = {}
 
 
 class ImportSheet(BaseModel):
@@ -949,6 +971,11 @@ def import_commit(body: ImportIn, conn: sqlite3.Connection = Conn):
                     created += 1
                 amounts = [None if v is None else v * body.scale for v in row.amounts]
                 set_amounts(conn, item_id, body.year, cents_list(amounts))
+                conn.execute("DELETE FROM unreadable WHERE item_id = ? AND year = ?", (item_id, body.year))
+                conn.executemany(
+                    "INSERT INTO unreadable (item_id, year, month, raw) VALUES (?, ?, ?, ?)",
+                    [(item_id, body.year, m, raw) for m, raw in row.invalid.items() if 1 <= m <= 12],
+                )
     suspicious = [f for f in checks.find(conn, _dismissed(conn))["findings"] if f["year"] == body.year]
     return {"created": created, "updated": updated, "suspicious": len(suspicious)}
 
@@ -992,13 +1019,24 @@ def fix_check(body: CheckFixIn, conn: sqlite3.Connection = Conn):
 
 class CheckDismissIn(BaseModel):
     id: str = Field(max_length=200)
+    # For an unreadable cell: which ones to forget.
+    item_id: int | None = None
+    where: list[CheckPlace] = []
 
 
 @app.post("/api/checks/dismiss")
 def dismiss_check(body: CheckDismissIn, conn: sqlite3.Connection = Conn):
-    """'This amount is right': don't report it again."""
+    """'This amount is right' (don't report it again), or for an unreadable
+    cell 'ignore it' (the month stays empty)."""
     with db.transaction(conn):
-        set_settings(conn, {"checks_dismissed": sorted(_dismissed(conn) | {body.id})})
+        if body.id.startswith("unreadable:") and body.item_id is not None:
+            for w in body.where:
+                conn.executemany(
+                    "DELETE FROM unreadable WHERE item_id = ? AND year = ? AND month = ?",
+                    [(body.item_id, w.year, m) for m in w.months],
+                )
+        else:
+            set_settings(conn, {"checks_dismissed": sorted(_dismissed(conn) | {body.id})})
     return checks.find(conn, _dismissed(conn))
 
 

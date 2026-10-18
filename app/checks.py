@@ -119,6 +119,15 @@ def find(conn: sqlite3.Connection, dismissed: set[str] = frozenset()) -> dict:
                 typical=typical(usual) / 100, factor=factor, options=_scale_option(_where(g), factor),
             ))
 
+    # 0. Cells an import couldn't read: the amount is missing.
+    gaps: dict[tuple[int, int], dict[int, str]] = defaultdict(dict)
+    for r in conn.execute("SELECT item_id, year, month, raw FROM unreadable"):
+        if r["item_id"] in items:
+            gaps[(r["item_id"], r["year"])][r["month"]] = r["raw"]
+    for (item_id, y), cells in sorted(gaps.items()):
+        months = sorted(cells)
+        add(item_finding("unreadable", item_id, [{"year": y, "months": months}], raw=[cells[m] for m in months], factor=None, options=[]))
+
     # 2. Planned against what the bank actually paid.
     years = sorted({y for vals in values.values() for (y, _) in vals}
                    | {r[0] for r in conn.execute("SELECT DISTINCT year FROM bank_transactions")})
@@ -186,7 +195,7 @@ def find(conn: sqlite3.Connection, dismissed: set[str] = frozenset()) -> dict:
                         "options": _scale_option(where, factor),
                     })
 
-    order = {"split": 0, "item": 0, "bank": 1, "large": 2, "balance": 3}
+    order = {"unreadable": -1, "split": 0, "item": 0, "bank": 1, "large": 2, "balance": 3}
     findings.sort(key=lambda f: (f["year"], order[f["type"]], f["name"].lower()))
     return {"findings": findings, "checked": count}
 

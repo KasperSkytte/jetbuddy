@@ -3,7 +3,7 @@ import { api } from '../api.js';
 import { useStore, useData, setStore, bump, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
 import { money, signedMoney, sum } from '../fmt.js';
-import { Chips, Dot, Icon, seriesColor, toast, toastError } from '../ui.js';
+import { Chips, Dot, Icon, seriesColor, toast, toastError, useWide, KindSwitch } from '../ui.js';
 import { members, itemsOf, categoryById, accountById, describeAmounts, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
 
@@ -57,8 +57,8 @@ function ItemCard({ item, household, onOpen, reorder, onMove, color }) {
   </div>`;
 }
 
-function ListView({ items, household, onOpen, onAdd, reorder, onMove }) {
-  return html`<div class="plan-cols">${['income', 'expense'].map((kind) => {
+function ListView({ items, household, onOpen, onAdd, reorder, onMove, kinds }) {
+  return html`<div class="plan-cols">${kinds.map((kind) => {
     const list = items.filter((i) => i.kind === kind);
     const color = kind === 'income' ? INCOME_COLOR : EXPENSE_COLOR;
     return html`<section class="card flush" key=${kind}>
@@ -79,6 +79,7 @@ export function Plan() {
   const items = useData(`/api/years/${year}/items`);
   const [editing, setEditing] = useState(null);
   const [reorder, setReorder] = useState(false);
+  const wide = useWide();
   const people = members(household);
   const memberId = people.some((m) => m.id === store.planMember) ? store.planMember : people[0]?.id;
   const member = people.find((m) => m.id === memberId);
@@ -119,8 +120,9 @@ export function Plan() {
       ${member?.is_shared && html`<p class="small muted" style="margin:10px 0 0">${t('plan.sharedHint')}</p>`}
     </div>
     ${!list ? html`<div class="loading">${t('common.loading')}</div>`
-      : html`<${ListView} items=${list} household=${household} onOpen=${(item) => setEditing({ item })}
-          onAdd=${(kind) => setEditing({ member, kind })} reorder=${reorder} onMove=${onMove} />`}
+      : html`${!wide && html`<${KindSwitch} />`}<${ListView} items=${list} household=${household} onOpen=${(item) => setEditing({ item })}
+          onAdd=${(kind) => setEditing({ member, kind })} reorder=${reorder} onMove=${onMove}
+          kinds=${wide ? ['income', 'expense'] : [store.kindTab || 'expense']} />`}
     ${editing && html`<${ItemSheet} year=${year} item=${editing.item} member=${editing.member} kind=${editing.kind}
       onClose=${() => setEditing(null)} onChanged=${() => items.reload()} />`}
   </div>`;

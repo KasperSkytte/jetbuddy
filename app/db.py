@@ -163,6 +163,18 @@ MIGRATIONS = [
     """
     ALTER TABLE bank_accounts ADD COLUMN link_chosen INTEGER NOT NULL DEFAULT 0;
     """,
+    # Spreadsheet cells an import couldn't read as amounts. They are kept, so
+    # the gap shows until someone enters the amount or says to ignore it,
+    # instead of silently making the totals wrong.
+    """
+    CREATE TABLE unreadable (
+        item_id INTEGER NOT NULL REFERENCES items (id) ON DELETE CASCADE,
+        year    INTEGER NOT NULL,
+        month   INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+        raw     TEXT NOT NULL,
+        PRIMARY KEY (item_id, year, month)
+    );
+    """,
 ]
 
 

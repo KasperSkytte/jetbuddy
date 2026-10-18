@@ -312,3 +312,22 @@ def test_import_reports_suspicious_amounts(client, household):
     r = client.post("/api/import/commit", json={"year": 2027, "sheets": [{"member_id": alex, "kind": "income", "rows": [
         {"name": "Salary", "amounts": [31250] * 11 + [3125000]}]}]})
     assert r.json()["suspicious"] == 1
+
+
+def test_unreadable_import_cells_stay_visible_until_fixed(client, household):
+    alex = member(household, "Alex")["id"]
+    r = client.post("/api/import/commit", json={"year": 2027, "sheets": [{"member_id": alex, "kind": "expense", "rows": [
+        {"name": "Phone", "amounts": [149.95] * 10 + [None, None], "invalid": {"11": "1.2,3.4", "12": "14,9.95"}}]}]})
+    assert r.json()["suspicious"] == 1
+    item = client.get("/api/years/2027/items").json()[0]
+    assert item["unreadable"][10:] == ["1.2,3.4", "14,9.95"]
+    f = next(f for f in client.get("/api/checks").json()["findings"] if f["type"] == "unreadable")
+    assert f["where"] == [{"year": 2027, "months": [11, 12]}] and f["raw"] == ["1.2,3.4", "14,9.95"]
+    # Typing the amount for November settles that cell.
+    client.put(f"/api/items/{item['id']}/amount", json={"year": 2027, "month": 11, "amount": 149.95})
+    f = next(f for f in client.get("/api/checks").json()["findings"] if f["type"] == "unreadable")
+    assert f["where"] == [{"year": 2027, "months": [12]}]
+    # Ignoring December leaves it empty and stops reporting it.
+    client.post("/api/checks/dismiss", json={"id": f["id"], "item_id": item["id"], "where": f["where"]})
+    assert not any(f["type"] == "unreadable" for f in client.get("/api/checks").json()["findings"])
+    assert client.get("/api/years/2027/items").json()[0]["unreadable"] == [None] * 12

@@ -484,6 +484,19 @@ const en = {
   'import.suspicious.one': '1 amount looks wrong. Check it under Settings → Check the numbers.',
   'import.otherDecimal.one': '1 amount, “{example}”, looks like it uses the other decimal separator. Importing like this would make it 100 or 1000 times off.',
   'import.unreadable.one': '1 cell, “{example}”, can’t be read as an amount with this decimal setting and will be skipped.',
+  'checks.unreliable': 'The numbers aren’t reliable yet',
+  'checks.unreliableText': '{n} amounts are missing or look wrong, so the totals and charts may be off. Fix them first.',
+  'checks.unreliableText.one': '1 amount is missing or looks wrong, so the totals and charts may be off. Fix it first.',
+  'checks.unreadable': '{where}: the spreadsheet said {raw}, which couldn’t be read as an amount, so it’s missing. Type the right amount, or ignore it to leave the month empty.',
+  'checks.ignoreGap': 'Leave the month empty',
+  'amount.notSaved': '“{text}” isn’t a valid amount and wasn’t saved.',
+  'item.fixRed': 'Fix the red months before saving: they aren’t valid amounts.',
+  'item.unreadableHint': 'The red months couldn’t be read when importing. Type the amounts.',
+  'item.unreadableTile': 'The spreadsheet said “{raw}”, which couldn’t be read as an amount',
+  'month.unreadable': 'Couldn’t be read when importing: “{raw}”. Type the amount.',
+  'common.show': 'Show',
+  'month.noIncome': 'No income this month.',
+  'month.noExpenses': 'No expenses this month.',
 };
 
 const da = {
@@ -966,6 +979,19 @@ const da = {
   'import.suspicious.one': '1 beløb ser forkert ud. Tjek det under Indstillinger → Tjek tallene.',
   'import.otherDecimal.one': '1 beløb, “{example}”, ser ud til at bruge det andet decimaltegn. Importeres det sådan, bliver det 100 eller 1000 gange forkert.',
   'import.unreadable.one': '1 celle, “{example}”, kan ikke læses som et beløb med dette decimaltegn og bliver sprunget over.',
+  'checks.unreliable': 'Tallene er ikke pålidelige endnu',
+  'checks.unreliableText': '{n} beløb mangler eller ser forkerte ud, så totaler og grafer kan være forkerte. Ret dem først.',
+  'checks.unreliableText.one': '1 beløb mangler eller ser forkert ud, så totaler og grafer kan være forkerte. Ret det først.',
+  'checks.unreadable': '{where}: regnearket sagde {raw}, som ikke kunne læses som et beløb, så det mangler. Skriv det rigtige beløb, eller ignorér det for at lade måneden være tom.',
+  'checks.ignoreGap': 'Lad måneden være tom',
+  'amount.notSaved': '“{text}” er ikke et gyldigt beløb og blev ikke gemt.',
+  'item.fixRed': 'Ret de røde måneder, før du gemmer: de er ikke gyldige beløb.',
+  'item.unreadableHint': 'De røde måneder kunne ikke læses ved importen. Skriv beløbene.',
+  'item.unreadableTile': 'Regnearket sagde “{raw}”, som ikke kunne læses som et beløb',
+  'month.unreadable': 'Kunne ikke læses ved importen: “{raw}”. Skriv beløbet.',
+  'common.show': 'Vis',
+  'month.noIncome': 'Ingen indtægter denne måned.',
+  'month.noExpenses': 'Ingen udgifter denne måned.',
 };
 
 const DICTS = { en, da };
