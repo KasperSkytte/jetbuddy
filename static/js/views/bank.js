@@ -158,9 +158,13 @@ function SetupGuide({ status, onDone }) {
       <div class="stack" style="padding-top:8px">
         <p class="small secondary" style="margin:0">${t('bank.ownKeyText')}</p>
         <label class="btn small" style="align-self:flex-start;cursor:pointer"><${Icon} name="upload" size=${16} />
-          ${ownKey ? t('bank.keyChosen') : t('bank.chooseKey')}
+          ${t('bank.chooseKey')}
           <input type="file" accept=".pem,.key,application/x-pem-file,text/plain" class="sr-only"
             onChange=${async (e) => { const f = e.target.files[0]; if (f) setOwnKey(await f.text()); }} /></label>
+        <label class="field"><span>${t('bank.pasteKey')}</span>
+          <textarea class="input cert" rows="5" spellcheck="false" autocomplete="off" value=${ownKey || ''}
+            placeholder="-----BEGIN PRIVATE KEY-----" onInput=${(e) => setOwnKey(e.target.value.trim() ? e.target.value : null)}></textarea></label>
+        ${ownKey && html`<span class="small good">${t('bank.keyChosen')}</span>`}
         <span class="small muted">${t('bank.keyHint')}</span>
       </div>
     </details>

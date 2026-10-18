@@ -331,3 +331,21 @@ def test_unreadable_import_cells_stay_visible_until_fixed(client, household):
     client.post("/api/checks/dismiss", json={"id": f["id"], "item_id": item["id"], "where": f["where"]})
     assert not any(f["type"] == "unreadable" for f in client.get("/api/checks").json()["findings"])
     assert client.get("/api/years/2027/items").json()[0]["unreadable"] == [None] * 12
+
+
+def test_budget_name_is_the_login(client):
+    r = client.post("/api/budgets", json={"household": "Familien Hansen", "members": ["A"], "password": PASSWORD})
+    assert r.status_code == 200, r.text
+    assert r.json()["accounts"] == []  # accounts come from the bank or are added by hand
+    client.post("/api/logout")
+    # Any case and spacing.
+    assert client.post("/api/login", json={"login": "  familien   HANSEN ", "password": PASSWORD}).status_code == 200
+    # Renaming the budget renames the login.
+    client.put("/api/settings", json={"household": "Hansen-Berg"})
+    client.post("/api/logout")
+    assert client.post("/api/login", json={"login": "Familien Hansen", "password": PASSWORD}).status_code == 401
+    assert client.post("/api/login", json={"login": "hansen-berg", "password": PASSWORD}).status_code == 200
+    # Another budget can't take the name.
+    client.post("/api/logout")
+    new_budget(client, login=None, household="Other")
+    assert client.put("/api/settings", json={"household": "HANSEN-BERG"}).status_code == 409

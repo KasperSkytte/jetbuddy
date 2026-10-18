@@ -3,7 +3,7 @@ import { api } from '../api.js';
 import { setStore } from '../store.js';
 import { t, LANGUAGES, setLanguage, currentLanguage } from '../i18n.js';
 import { setFormat, defaultDecimal } from '../fmt.js';
-import { Logo, Icon, Switch, toastError } from '../ui.js';
+import { Logo, Icon, toastError } from '../ui.js';
 import { CURRENCIES, DecimalChoice } from './settings.js';
 
 /** The decimal separator people here are used to, from the browser's language. */
@@ -18,11 +18,6 @@ function guessDecimal() {
 const CURRENCY_BY_REGION = { DK: 'DKK', SE: 'SEK', NO: 'NOK', IS: 'ISK', GB: 'GBP', US: 'USD', CH: 'CHF', PL: 'PLN', CZ: 'CZK', CA: 'CAD', AU: 'AUD', NZ: 'NZD', JP: 'JPY', IN: 'INR', BR: 'BRL', ZA: 'ZAR' };
 
 /** First run: name the household and the people in it. */
-function slug(text) {
-  return text.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/æ/g, 'ae').replace(/ø/g, 'oe').replace(/å/g, 'aa')
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
-}
-
 export function Setup({ onDone, onBack }) {
   const [, rerender] = useState(0);
   const region = (navigator.language || '').split('-')[1] || '';
@@ -34,13 +29,9 @@ export function Setup({ onDone, onBack }) {
     currency: CURRENCY_BY_REGION[region.toUpperCase()] || (currentLanguage() === 'da' ? 'DKK' : 'EUR'),
     members: ['', ''],
     shared_name: t('setup.sharedDefault'),
-    starter_categories: true,
-    starter_accounts: true,
-    login: '',
     password: '',
   });
   const [repeat, setRepeat] = useState('');
-  const [loginEdited, setLoginEdited] = useState(false);
   const [busy, setBusy] = useState(false);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
   const names = form.members.map((m) => m.trim()).filter(Boolean);
@@ -57,7 +48,7 @@ export function Setup({ onDone, onBack }) {
     e.preventDefault();
     setBusy(true);
     try {
-      const household = await api.post('/api/budgets', { ...form, household: form.household.trim(), members: names, login: form.login.trim() });
+      const household = await api.post('/api/budgets', { ...form, household: form.household.trim(), members: names });
       setFormat({ language: form.language, currency: form.currency, decimal: form.decimal });
       setStore({ household });
       onDone(household);
@@ -73,8 +64,9 @@ export function Setup({ onDone, onBack }) {
       <select class="input" value=${form.language} onChange=${(e) => changeLanguage(e.target.value)}>
         ${Object.entries(LANGUAGES).map(([k, v]) => html`<option key=${k} value=${k}>${v}</option>`)}</select></label>
     <label class="field"><span>${t('settings.householdName')}</span>
-      <input class="input" value=${form.household} placeholder=${t('setup.householdPlaceholder')} maxlength="100" autofocus
-        onInput=${(e) => set({ household: e.target.value, ...(loginEdited ? {} : { login: slug(e.target.value) }) })} /></label>
+      <input class="input" name="username" autocomplete="username" value=${form.household} placeholder=${t('setup.householdPlaceholder')}
+        maxlength="100" autofocus onInput=${(e) => set({ household: e.target.value })} />
+      <span class="hint">${t('settings.budgetNameHint')}</span></label>
     <div class="field"><span>${t('setup.people')}</span>
       <span class="hint">${t('setup.peopleHint')}</span>
       ${form.members.map((m, i) => html`<div class="row" key=${i}>
@@ -96,11 +88,8 @@ export function Setup({ onDone, onBack }) {
       <div class="field"><span>${t('settings.decimal')}</span><${DecimalChoice} value=${form.decimal} onChange=${(decimal) => set({ decimal })}
         both=${form.decimal_both} onBothChange=${(decimal_both) => set({ decimal_both })} /></div>
     </div>
-    <div class="field"><span>${t('setup.login')}</span>
+    <div class="field"><span>${t('login.password')}</span>
       <span class="hint">${t('setup.loginHint')}</span>
-      <input class="input" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" value=${form.login}
-        placeholder=${t('login.username')} aria-label=${t('login.username')} maxlength="60"
-        onInput=${(e) => { setLoginEdited(true); set({ login: e.target.value }); }} />
       <input class="input" type="password" autocomplete="new-password" value=${form.password} placeholder=${t('login.password')}
         aria-label=${t('login.password')} onInput=${(e) => set({ password: e.target.value })} />
       <input class="input" type="password" autocomplete="new-password" value=${repeat} placeholder=${t('setup.passwordRepeat')}
@@ -108,10 +97,8 @@ export function Setup({ onDone, onBack }) {
       ${form.password && form.password.length < 8 ? html`<span class="hint bad">${t('setup.passwordShort')}</span>`
         : repeat && repeat !== form.password ? html`<span class="hint bad">${t('setup.passwordMismatch')}</span>` : null}
     </div>
-    <${Switch} checked=${form.starter_categories} onChange=${(v) => set({ starter_categories: v })} label=${t('setup.starterCategories')} />
-    <${Switch} checked=${form.starter_accounts} onChange=${(v) => set({ starter_accounts: v })} label=${t('setup.starterAccounts')} hint=${t('setup.starterAccountsHint')} />
-    <button class="btn primary block" disabled=${busy || !form.household.trim() || !names.length || !form.shared_name.trim()
-      || form.login.trim().length < 2 || /\s/.test(form.login.trim()) || form.password.length < 8 || repeat !== form.password}>${t('setup.start')}</button>
+    <button class="btn primary block" disabled=${busy || form.household.trim().length < 2 || !names.length || !form.shared_name.trim()
+      || form.password.length < 8 || repeat !== form.password}>${t('setup.start')}</button>
     ${onBack && html`<button type="button" class="btn ghost" onClick=${onBack}>${t('setup.back')}</button>`}
   </form></div>`;
 }

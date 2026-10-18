@@ -213,10 +213,15 @@ def health():
     return {"ok": True, "version": __version__}
 
 
+def _normal_login(name: str) -> str:
+    """The budget's name as it's logged in with: any case, any spacing."""
+    return " ".join(name.split()).lower()
+
+
 def _login_name(login: str) -> str:
-    login = login.strip().lower()
-    if len(login) < 2 or any(ch.isspace() for ch in login):
-        raise AppError(422, "USERNAME_INVALID", "the budget name must be at least 2 characters, without spaces")
+    login = _normal_login(login)
+    if len(login) < 2:
+        raise AppError(422, "USERNAME_INVALID", "the budget name must be at least 2 characters")
     return login
 
 
@@ -265,7 +270,7 @@ def session(request: Request):
 def login(body: LoginIn, request: Request, response: Response):
     server = db.open_server()
     try:
-        row = server.execute("SELECT * FROM budgets WHERE login = ?", (body.login.strip().lower(),)).fetchone()
+        row = server.execute("SELECT * FROM budgets WHERE login = ?", (_normal_login(body.login),)).fetchone()
     finally:
         server.close()
     _check_password(request, row, body.password)
@@ -362,7 +367,8 @@ class SetupIn(BaseModel):
     members: list[str] = Field(min_length=1, max_length=20)
     shared_name: str = Field("Shared", min_length=1, max_length=60)
     starter_categories: bool = True
-    starter_accounts: bool = True
+    # Accounts come from the bank, or are added by hand; none to start with.
+    starter_accounts: bool = False
 
 
 @app.get("/api/state")
@@ -390,14 +396,15 @@ def state(conn: sqlite3.Connection = Conn):
 
 
 class NewBudgetIn(SetupIn):
-    login: str = Field(max_length=60)
+    # The budget is logged in to with its name; a separate login is optional.
+    login: str | None = Field(None, max_length=100)
     password: str = Field(min_length=auth.MIN_PASSWORD, max_length=200)
 
 
 @app.post("/api/budgets")
 def create_budget(body: NewBudgetIn, request: Request, response: Response):
     """Create a budget with its login, set it up, and log in to it."""
-    login = _login_name(body.login)
+    login = _login_name(body.login or body.household)
     password_hash = auth.hash_password(body.password)
     server = db.open_server()
     try:
@@ -462,14 +469,20 @@ class SettingsIn(BaseModel):
 
 @app.put("/api/settings")
 def update_settings(body: SettingsIn, request: Request, conn: sqlite3.Connection = Conn):
-    with db.transaction(conn):
-        set_settings(conn, body.model_dump(exclude_none=True))
-    if body.household:
+    if body.household is not None:
+        # The budget's name is also what it's logged in with: rename both.
+        name = body.household.strip()
+        login = _login_name(name)
         server = db.open_server()
         try:
-            server.execute("UPDATE budgets SET name = ? WHERE id = ?", (body.household.strip(), request.state.budget_id))
+            if server.execute("SELECT 1 FROM budgets WHERE login = ? AND id != ?", (login, request.state.budget_id)).fetchone():
+                raise AppError(409, "USERNAME_TAKEN", "that budget name is taken")
+            server.execute("UPDATE budgets SET name = ?, login = ? WHERE id = ?", (name, login, request.state.budget_id))
         finally:
             server.close()
+        body.household = name
+    with db.transaction(conn):
+        set_settings(conn, body.model_dump(exclude_none=True))
     return get_settings(conn)
 
 

@@ -47,22 +47,17 @@ function Section({ title, icon, children, action }) {
   </section>`;
 }
 
-function LoginDetailsSheet({ login, onClose }) {
-  const [form, setForm] = useState({ current: '', login, password: '', repeat: '' });
+function PasswordSheet({ onClose }) {
+  const [form, setForm] = useState({ current: '', password: '', repeat: '' });
   const [busy, setBusy] = useState(false);
   const set = (p) => setForm((f) => ({ ...f, ...p }));
-  const short = form.password && form.password.length < 8;
+  const short = form.password.length < 8;
   const mismatch = form.repeat !== form.password;
   const save = async () => {
     setBusy(true);
     try {
-      await api.put('/api/login-details', {
-        current_password: form.current,
-        login: form.login.trim() !== login ? form.login.trim() : null,
-        password: form.password || null,
-      });
+      await api.put('/api/login-details', { current_password: form.current, password: form.password });
       toast(t('settings.loginChanged'));
-      setStore({ session: await api.get('/api/session') });
       onClose();
     } catch (e) {
       toast(e.status === 401 ? t('settings.wrongPassword') : errorText(e), { error: true });
@@ -72,16 +67,14 @@ function LoginDetailsSheet({ login, onClose }) {
   };
   return html`<${Sheet} title=${t('settings.changeLogin')} onClose=${onClose}
     footer=${html`<span class="spacer"></span><button class="btn" onClick=${onClose}>${t('common.cancel')}</button>
-      <button class="btn primary" disabled=${busy || !form.current || short || mismatch || form.login.trim().length < 2} onClick=${save}>${t('common.save')}</button>`}>
+      <button class="btn primary" disabled=${busy || !form.current || short || mismatch} onClick=${save}>${t('common.save')}</button>`}>
     <div class="form-grid">
-      <label class="field"><span>${t('login.username')}</span>
-        <input class="input" autocomplete="username" autocapitalize="none" spellcheck="false" value=${form.login} onInput=${(e) => set({ login: e.target.value })} /></label>
       <label class="field"><span>${t('settings.newPassword')}</span>
-        <input class="input" type="password" autocomplete="new-password" value=${form.password} onInput=${(e) => set({ password: e.target.value })} />
-        <span class=${'hint' + (short ? ' bad' : '')}>${short ? t('setup.passwordShort') : t('settings.newPasswordHint')}</span></label>
-      ${form.password && html`<label class="field"><span>${t('setup.passwordRepeat')}</span>
+        <input class="input" type="password" autocomplete="new-password" value=${form.password} onInput=${(e) => set({ password: e.target.value })} autofocus />
+        ${form.password && short && html`<span class="hint bad">${t('setup.passwordShort')}</span>`}</label>
+      <label class="field"><span>${t('setup.passwordRepeat')}</span>
         <input class="input" type="password" autocomplete="new-password" value=${form.repeat} onInput=${(e) => set({ repeat: e.target.value })} />
-        ${form.repeat && mismatch && html`<span class="hint bad">${t('setup.passwordMismatch')}</span>`}</label>`}
+        ${form.repeat && mismatch && html`<span class="hint bad">${t('setup.passwordMismatch')}</span>`}</label>
       <label class="field"><span>${t('settings.currentPassword')}</span>
         <input class="input" type="password" autocomplete="current-password" value=${form.current} onInput=${(e) => set({ current: e.target.value })} />
         <span class="hint">${t('settings.currentPasswordHint')}</span></label>
@@ -121,12 +114,12 @@ function LoginSection() {
   };
   return html`<${Section} title=${t('settings.login')} icon="lock">
     <div class="list-row" style="border-top:0">
-      <div class="main-col"><div class="name">${login}</div><div class="meta" style="white-space:normal">${t('settings.loginHint')}</div></div>
+      <div class="main-col"><div class="name">${household.settings.household}</div><div class="meta" style="white-space:normal">${t('settings.loginHint')}</div></div>
     </div>
     <button class="add-row" onClick=${() => setSheet('change')}><${Icon} name="edit" size=${18} />${t('settings.changeLogin')}</button>
     <button class="add-row" onClick=${logout}><${Icon} name="logout" size=${18} />${t('settings.logout')}</button>
     <button class="add-row" style="color:var(--bad)" onClick=${() => setSheet('delete')}><${Icon} name="trash" size=${18} />${t('settings.deleteBudget')}</button>
-    ${sheet === 'change' && html`<${LoginDetailsSheet} login=${login} onClose=${() => setSheet(null)} />`}
+    ${sheet === 'change' && html`<${PasswordSheet} onClose=${() => setSheet(null)} />`}
     ${sheet === 'delete' && html`<${DeleteBudgetSheet} name=${household.settings.household} onClose=${() => setSheet(null)} />`}
   </${Section}>`;
 }
@@ -147,18 +140,20 @@ function HouseholdForm() {
     run(async () => {
       const settings = await api.put('/api/settings', patch);
       applySettings(settings);
+      if (patch.household) setStore({ session: await api.get('/api/session') });
     }, () => toast(t('common.saved')));
   };
   const saveName = () => {
     const name = form.household.trim();
-    if (name && name !== (s.household || '')) save({ household: name });
+    if (name.length >= 2 && name !== (s.household || '')) save({ household: name });
     else setForm((f) => ({ ...f, household: s.household || '' }));
   };
   return html`<${Section} title=${t('settings.household')} icon="home">
     <div class="form-grid two" style="padding:6px 16px 16px">
       <label class="field"><span>${t('settings.householdName')}</span>
         <input class="input" value=${form.household} maxlength="100" onInput=${(e) => setForm((f) => ({ ...f, household: e.target.value }))}
-          onBlur=${saveName} onKeyDown=${(e) => e.key === 'Enter' && e.target.blur()} /></label>
+          onBlur=${saveName} onKeyDown=${(e) => e.key === 'Enter' && e.target.blur()} />
+        <span class="hint">${t('settings.budgetNameHint')}</span></label>
       <label class="field"><span>${t('settings.language')}</span>
         <select class="input" value=${form.language} onChange=${(e) => save({ language: e.target.value })}>
           ${Object.entries(LANGUAGES).map(([k, v]) => html`<option key=${k} value=${k}>${v}</option>`)}</select></label>

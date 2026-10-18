@@ -17,10 +17,10 @@ def client(tmp_path, monkeypatch):
 
 
 def new_budget(client, login="test", members=("Alex", "Sam", "Kim", "Robin"), **extra):
-    return client.post(
-        "/api/budgets",
-        json={"household": "Test", "members": list(members), "shared_name": "Shared", "login": login, "password": PASSWORD, **extra},
-    )
+    # The tests' household keeps the two accounts that new budgets used to start with.
+    body = {"household": "Test", "members": list(members), "shared_name": "Shared", "login": login,
+            "password": PASSWORD, "starter_accounts": True, **extra}
+    return client.post("/api/budgets", json=body)
 
 
 @pytest.fixture
