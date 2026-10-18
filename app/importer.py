@@ -70,14 +70,23 @@ def parse_number(value, decimal: str = ",") -> float | None:
     """An amount from a spreadsheet cell. Real numbers are taken as they are.
     For text, decimal (',' or '.') is the decimal separator and everything
     else except digits and a leading minus is ignored: thousands separators,
-    spaces, currency signs. (500) is negative, as in accounting."""
+    spaces, currency signs. (500) is negative, as in accounting.
+
+    decimal 'either' takes comma or dot as the decimal separator; a number
+    with both, or with more than one, is not valid."""
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
         return float(value)
     text = str(value).strip().replace("\u2212", "-").replace("\u2013", "-")
     negative = text.startswith("-") or (text.startswith("(") and text.endswith(")"))
-    digits = re.sub(r"[^0-9" + re.escape(decimal) + r"]", "", text)
+    if decimal == "either":
+        digits = re.sub(r"[^0-9,.]", "", text)
+        if "," in digits and "." in digits:
+            return None
+        decimal = "," if "," in digits else "."
+    else:
+        digits = re.sub(r"[^0-9" + re.escape(decimal) + r"]", "", text)
     if not re.search(r"\d", digits) or digits.count(decimal) > 1 or re.search(r"[A-Za-z]{2,}", re.sub(r"(?i)kr\.?|dkk|sek|nok|eur|usd", "", text)):
         return None
     number = float(digits.replace(decimal, "."))

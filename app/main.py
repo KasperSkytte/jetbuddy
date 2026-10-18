@@ -343,7 +343,7 @@ DEFAULT_ACCOUNTS = {
 class SetupIn(BaseModel):
     household: str = Field(min_length=1, max_length=100)
     language: str = "en"
-    decimal: Literal[",", "."] = ","
+    decimal: Literal[",", ".", "either"] = ","
     currency: str = "USD"
     members: list[str] = Field(min_length=1, max_length=20)
     shared_name: str = Field("Shared", min_length=1, max_length=60)
@@ -438,7 +438,7 @@ def _setup_household(conn: sqlite3.Connection, body: SetupIn) -> None:
 class SettingsIn(BaseModel):
     household: str | None = Field(None, max_length=100)
     language: str | None = Field(None, max_length=10)
-    decimal: Literal[",", "."] | None = None
+    decimal: Literal[",", ".", "either"] | None = None
     currency: str | None = Field(None, max_length=3)
 
 
@@ -880,7 +880,7 @@ def export_xlsx(year: int, group: Literal["auto", "category", "member"] = "auto"
 
 
 @app.post("/api/import/preview")
-async def import_preview(file: UploadFile = File(...), decimal: Literal[",", "."] = Form(",")):
+async def import_preview(file: UploadFile = File(...), decimal: Literal[",", ".", "either"] = Form(",")):
     """Read a spreadsheet. decimal: the decimal separator of amounts written as text."""
     data = await file.read(MAX_IMPORT_BYTES + 1)
     if len(data) > MAX_IMPORT_BYTES:

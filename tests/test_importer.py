@@ -12,6 +12,9 @@ from app.importer import parse_number
         ("kr. 99,95", ",", 99.95), ("\u22122.500", ",", -2500), ("(500)", ",", -500), ("12,5", ",", 12.5),
         # dot as the decimal separator
         ("1,234.50", ".", 1234.5), ("149.95", ".", 149.95), ("2,500", ".", 2500), ("-12,000", ".", -12000),
+        # either separator, but never both, and only once
+        ("12,5", "either", 12.5), ("12.5", "either", 12.5), ("-512,40", "either", -512.40), ("31250 kr.", "either", 31250),
+        ("1.234,56", "either", None), ("1,234.56", "either", None), ("1.234.567", "either", None), ("31 250,5", "either", 31250.5),
         # not amounts
         ("", ",", None), ("abc", ",", None), ("Jan", ",", None), ("1,2,3", ",", None), ("1.2.3", ".", None),
         # real numbers in the spreadsheet are taken as they are

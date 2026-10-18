@@ -13,6 +13,9 @@ export function defaultDecimal(language) {
 
 export function setFormat({ language = 'en', currency = 'USD', decimal } = {}) {
   const locale = LANGUAGE_LOCALE[language] || 'en-GB';
+  // 'either': comma and dot both mean decimal, so numbers are shown with the
+  // language's usual decimal sign and a thin space between thousands.
+  const either = decimal === 'either';
   const dec = decimal === '.' || decimal === ',' ? decimal : defaultDecimal(language);
   const make = (options, fallback) => {
     try {
@@ -23,8 +26,9 @@ export function setFormat({ language = 'en', currency = 'USD', decimal } = {}) {
   };
   fmt = {
     locale,
+    either,
     decimal: dec,
-    group: dec === ',' ? '.' : ',',
+    group: either ? '\u202f' : dec === ',' ? '.' : ',',
     money: make({ style: 'currency', currency, maximumFractionDigits: 0, minimumFractionDigits: 0 }, { maximumFractionDigits: 0 }),
     moneyShort: make({ style: 'currency', currency, notation: 'compact', maximumFractionDigits: 1 }, { notation: 'compact', maximumFractionDigits: 1 }),
     plain: make({ maximumFractionDigits: 2, minimumFractionDigits: 0 }),
@@ -84,12 +88,15 @@ export function percent(v) {
  */
 export function parseAmount(text) {
   if (text == null || String(text).trim() === '') return null;
-  const dec = fmt.decimal;
-  const s = String(text).replace(/[−–]/g, '-').replace(dec === ',' ? /[^0-9,+-]/g : /[^0-9.+-]/g, '');
+  const keep = fmt.either ? /[^0-9,.+-]/g : fmt.decimal === ',' ? /[^0-9,+-]/g : /[^0-9.+-]/g;
+  const s = String(text).replace(/[−–]/g, '-').replace(keep, '');
   const terms = s.match(/[+-]?[^+-]+/g);
   if (!terms) return NaN;
   let total = 0;
   for (const term of terms) {
+    // With 'either', comma or dot is the decimal sign, but not both in one number.
+    if (fmt.either && term.includes(',') && term.includes('.')) return NaN;
+    const dec = fmt.either ? (term.includes(',') ? ',' : '.') : fmt.decimal;
     if (term.split(dec).length > 2 || !/\d/.test(term)) return NaN;
     total += Number(term.replace(dec, '.'));
   }

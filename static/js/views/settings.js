@@ -12,10 +12,15 @@ import { InstallGuide } from './install.js';
 
 export const CURRENCIES = ['DKK', 'EUR', 'USD', 'GBP', 'SEK', 'NOK', 'ISK', 'CHF', 'PLN', 'CZK', 'CAD', 'AUD', 'NZD', 'JPY', 'INR', 'BRL', 'ZAR'];
 
-/** Comma or dot as the decimal separator, with an example of each. */
+/** Comma, dot, or either as the decimal separator, with an example of each. */
 export function DecimalChoice({ value, onChange }) {
   return html`<${Segmented} value=${value} onChange=${onChange} label=${t('settings.decimal')}
-    options=${[{ value: ',', label: `${t('settings.comma')}  1.234,56` }, { value: '.', label: `${t('settings.dot')}  1,234.56` }]} />`;
+    options=${[
+      { value: ',', label: `${t('settings.comma')}  1.234,56` },
+      { value: '.', label: `${t('settings.dot')}  1,234.56` },
+      { value: 'either', label: `${t('settings.either')}  1,5/1.5` },
+    ]} />
+    ${value === 'either' && html`<span class="hint">${t('settings.eitherHint')}</span>`}`;
 }
 
 async function run(fn, done) {

@@ -430,6 +430,8 @@ const en = {
   'errors.NOT_CONFIGURED': 'Enable Banking isn’t set up yet.',
   'errors.UNKNOWN_STATE': 'This bank login wasn’t started here, or it took too long. Try again.',
   'errors.EXPIRED_SESSION': 'Access to the bank has expired. Log in to the bank again.',
+  'settings.either': 'Both',
+  'settings.eitherHint': 'Comma and dot both work as the decimal sign. A number with both, like 1.234,56, isn’t valid, so write thousands without a separator: 1234,56.',
 };
 
 const da = {
@@ -859,6 +861,8 @@ const da = {
   'errors.NOT_CONFIGURED': 'Enable Banking er ikke sat op endnu.',
   'errors.UNKNOWN_STATE': 'Bank-login blev ikke startet herfra, eller det tog for lang tid. Prøv igen.',
   'errors.EXPIRED_SESSION': 'Adgangen til banken er udløbet. Log ind i banken igen.',
+  'settings.either': 'Begge',
+  'settings.eitherHint': 'Både komma og punktum virker som decimaltegn. Et tal med begge, fx 1.234,56, er ugyldigt, så skriv tusinder uden skilletegn: 1234,56.',
 };
 
 const DICTS = { en, da };
