@@ -404,6 +404,12 @@ const en = {
   'install.tipTitle': 'Put Jetbuddy on your home screen',
   'install.tipText': 'Then it opens like a normal app.',
   'install.show': 'Show me how',
+  'import.numberFormat': 'Number format in the file',
+  'import.formatAuto': 'Automatic',
+  'import.thousands': 'The amounts are in thousands',
+  'import.thousandsHint': 'For spreadsheets where 27.8 means 27,800.',
+  'import.sample': 'Example: {name} {amount} in {month}',
+  'import.checkHint': 'Check that the example amounts look right; if not, change the number format above.',
 };
 
 const da = {
@@ -807,6 +813,12 @@ const da = {
   'install.tipTitle': 'Læg Jetbuddy på hjemmeskærmen',
   'install.tipText': 'Så åbner den som en almindelig app.',
   'install.show': 'Vis hvordan',
+  'import.numberFormat': 'Talformat i filen',
+  'import.formatAuto': 'Automatisk',
+  'import.thousands': 'Beløbene er i tusinder',
+  'import.thousandsHint': 'Til regneark hvor 27,8 betyder 27.800.',
+  'import.sample': 'Eksempel: {name} {amount} i {month}',
+  'import.checkHint': 'Tjek at eksempelbeløbene ser rigtige ud; ellers ret talformatet ovenfor.',
 };
 
 const DICTS = { en, da };

@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -873,12 +873,14 @@ def export_xlsx(year: int, group: Literal["auto", "category", "member"] = "auto"
 
 
 @app.post("/api/import/preview")
-async def import_preview(file: UploadFile = File(...)):
+async def import_preview(file: UploadFile = File(...), decimal: Literal["auto", ",", "."] = Form("auto")):
+    """Read a spreadsheet. decimal: the file's decimal separator, if the
+    automatic guess gets text amounts wrong."""
     data = await file.read(MAX_IMPORT_BYTES + 1)
     if len(data) > MAX_IMPORT_BYTES:
         raise HTTPException(413, "file is too large")
     try:
-        return {"sheets": importer.read_file(file.filename or "", data)}
+        return {"sheets": importer.read_file(file.filename or "", data, None if decimal == "auto" else decimal)}
     except Exception as e:  # openpyxl raises many different errors for bad files
         raise HTTPException(422, f"could not read the file: {e}")
 
@@ -897,6 +899,8 @@ class ImportSheet(BaseModel):
 class ImportIn(BaseModel):
     year: int = Field(ge=1900, le=2200)
     sheets: list[ImportSheet]
+    # 1000 when the spreadsheet's amounts are in thousands (27.8 meaning 27,800).
+    scale: Literal[1, 1000] = 1
 
 
 @app.post("/api/import/commit")
@@ -928,7 +932,8 @@ def import_commit(body: ImportIn, conn: sqlite3.Connection = Conn):
                         (sheet.member_id, sheet.kind, name, account[0] if account else None, next_sort(conn, "items")),
                     ).lastrowid
                     created += 1
-                set_amounts(conn, item_id, body.year, cents_list(row.amounts))
+                amounts = [None if v is None else v * body.scale for v in row.amounts]
+                set_amounts(conn, item_id, body.year, cents_list(amounts))
     return {"created": created, "updated": updated}
 
 

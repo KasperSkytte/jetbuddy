@@ -246,3 +246,13 @@ def test_excel_export(client, household):
     wb2 = openpyxl.load_workbook(io.BytesIO(client.get("/api/export/2027.xlsx?group=member").content))
     labels2 = [row[0] for row in wb2["Budget"].iter_rows(values_only=True)]
     assert "Housing" not in labels2 and labels2.count("Shared") >= 1
+
+
+def test_import_in_thousands(client, household):
+    alex = member(household, "Alex")["id"]
+    r = client.post("/api/import/commit", json={
+        "year": 2027, "scale": 1000,
+        "sheets": [{"member_id": alex, "kind": "income", "rows": [{"name": "Salary", "amounts": [27.8] + [None] * 11}]}],
+    })
+    assert r.status_code == 200, r.text
+    assert client.get("/api/years/2027/items").json()[0]["amounts"][0] == 27800

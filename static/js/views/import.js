@@ -2,7 +2,7 @@ import { html, useState } from '../lib.js';
 import { request } from '../api.js';
 import { useStore, bump, setStore, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
-import { money, sum } from '../fmt.js';
+import { money, amount, sum, monthNames } from '../fmt.js';
 import { Sheet, Segmented, Switch, Icon, toast, toastError } from '../ui.js';
 import { members } from '../model.js';
 
@@ -28,32 +28,57 @@ export function ImportSheet({ onClose }) {
   const people = members(household);
   const [year, setYear] = useState(currentYear);
   const [sheets, setSheets] = useState(null);
+  const [file, setFile] = useState(null);
+  const [decimal, setDecimal] = useState('auto'); // the file's decimal separator, for amounts stored as text
+  const [thousands, setThousands] = useState(false); // amounts written in thousands
   const [skipEmpty, setSkipEmpty] = useState(true);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(null);
 
-  const pick = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const y = file.name.match(/(?:19|20)\d{2}/);
-    if (y) setYear(Number(y[0]));
+  const read = async (f, dec) => {
     const body = new FormData();
-    body.append('file', file);
+    body.append('file', f);
+    body.append('decimal', dec);
     setBusy(true);
     try {
       const r = await request('POST', '/api/import/preview', body);
       if (!r.sheets.length) toast(t('import.nothingFound'), { error: true });
-      setSheets(r.sheets.map((s) => ({
-        ...s,
-        include: !s.looks_like_summary,
-        member_id: guessMember(s.name, people),
-        kind: s.kind || 'expense',
-      })));
+      // Rereading with another number format keeps the choices made per sheet.
+      setSheets((old) => r.sheets.map((s) => {
+        const prev = old?.find((o) => o.name === s.name);
+        return prev
+          ? { ...s, include: prev.include, member_id: prev.member_id, kind: prev.kind }
+          : { ...s, include: !s.looks_like_summary, member_id: guessMember(s.name, people), kind: s.kind || 'expense' };
+      }));
     } catch (err) {
       toastError(err);
     } finally {
       setBusy(false);
     }
+  };
+
+  const pick = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const y = f.name.match(/(?:19|20)\d{2}/);
+    if (y) setYear(Number(y[0]));
+    setFile(f);
+    setSheets(null);
+    read(f, decimal);
+  };
+
+  const changeDecimal = (dec) => {
+    setDecimal(dec);
+    if (file) read(file, dec);
+  };
+
+  const scale = thousands ? 1000 : 1;
+  const sample = (s) => {
+    for (const row of s.rows) {
+      const i = row.amounts.findIndex((v) => v);
+      if (i >= 0) return t('import.sample', { name: row.name, amount: amount(row.amounts[i] * scale), month: monthNames('long')[i] });
+    }
+    return '';
   };
 
   const update = (i, patch) => setSheets((all) => all.map((s, k) => (k === i ? { ...s, ...patch } : s)));
@@ -65,6 +90,7 @@ export function ImportSheet({ onClose }) {
     try {
       const r = await request('POST', '/api/import/commit', {
         year,
+        scale,
         sheets: chosen.map((s) => ({
           member_id: s.member_id,
           kind: s.kind,
@@ -97,9 +123,16 @@ export function ImportSheet({ onClose }) {
       <div class="row wrap" style="gap:16px">
         <label class="field" style="width:140px"><span>${t('import.year')}</span>
           <input class="input" type="number" inputmode="numeric" value=${year} onInput=${(e) => setYear(Number(e.target.value))} /></label>
-        <div class="spacer" style="min-width:220px"><${Switch} checked=${skipEmpty} onChange=${setSkipEmpty} label=${t('import.skipEmpty')} /></div>
+        <label class="field" style="flex:1;min-width:180px"><span>${t('import.numberFormat')}</span>
+          <select class="input" value=${decimal} onChange=${(e) => changeDecimal(e.target.value)} disabled=${busy}>
+            <option value="auto">${t('import.formatAuto')}</option>
+            <option value=",">1.234,56</option>
+            <option value=".">1,234.56</option>
+          </select></label>
       </div>
-      <p class="small secondary" style="margin:0">${t('import.mapHint')}</p>
+      <${Switch} checked=${thousands} onChange=${setThousands} label=${t('import.thousands')} hint=${t('import.thousandsHint')} />
+      <${Switch} checked=${skipEmpty} onChange=${setSkipEmpty} label=${t('import.skipEmpty')} />
+      <p class="small secondary" style="margin:0">${t('import.mapHint')} ${t('import.checkHint')}</p>
       ${sheets.map((s, i) => {
         const rows = s.rows.filter((row) => !skipEmpty || row.amounts.some((v) => v));
         return html`<div key=${i} class="card" style="padding:12px;opacity:${s.include ? 1 : 0.6}">
@@ -108,6 +141,7 @@ export function ImportSheet({ onClose }) {
               <strong>${s.name}</strong></label>
             <span class="small muted">${t('import.rows', { n: rows.length })}</span>
             ${s.looks_like_summary && html`<span class="badge">${t('import.summary')}</span>`}
+            ${s.include && sample(s) && html`<div class="small secondary" style="flex-basis:100%;margin-top:-4px">${sample(s)}</div>`}
             <span class="spacer"></span>
             <button class="btn ghost small" onClick=${() => setOpen(open === i ? null : i)}>${open === i ? t('import.hideRows') : t('import.showRows')}</button>
           </div>
@@ -120,7 +154,7 @@ export function ImportSheet({ onClose }) {
               options=${[{ value: 'income', label: t('common.income') }, { value: 'expense', label: t('common.expenses') }]} />
           </div>`}
           ${open === i && html`<div class="list" style="margin-top:8px">${rows.map((row, k) => html`<div key=${k} class="row small" style="padding:4px 0;border-top:1px solid var(--border)">
-            <span class="spacer ellipsis">${row.name}</span><span class="num">${money(sum(row.amounts))}</span></div>`)}</div>`}
+            <span class="spacer ellipsis">${row.name}</span><span class="num">${money(sum(row.amounts) * scale)}</span></div>`)}</div>`}
         </div>`;
       })}
       <p class="small muted" style="margin:0">${t('import.mergeHint')}</p>
