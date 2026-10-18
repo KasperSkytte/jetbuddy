@@ -66,14 +66,16 @@ def _month_of(header, position: int) -> int | None:
     return matches[0] if matches else None
 
 
-def parse_number(value, decimal: str = ",") -> float | None:
+def parse_number(value, decimal: str = ",", both: str = "last") -> float | None:
     """An amount from a spreadsheet cell. Real numbers are taken as they are.
     For text, decimal (',' or '.') is the decimal separator and everything
     else except digits and a leading minus is ignored: thousands separators,
     spaces, currency signs. (500) is negative, as in accounting.
 
-    decimal 'either' takes comma or dot as the decimal separator; a number
-    with both, or with more than one, is not valid."""
+    decimal 'either' takes comma or dot as the decimal separator. For a number
+    with both, both='last' makes the last one the decimal separator and
+    ignores the other (1.234,56 and 1,234.56 are both 1234.56); both='invalid'
+    rejects it. More than one decimal separator is never valid."""
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
@@ -83,8 +85,12 @@ def parse_number(value, decimal: str = ",") -> float | None:
     if decimal == "either":
         digits = re.sub(r"[^0-9,.]", "", text)
         if "," in digits and "." in digits:
-            return None
-        decimal = "," if "," in digits else "."
+            if both != "last":
+                return None
+            decimal = "," if digits.rfind(",") > digits.rfind(".") else "."
+            digits = digits.replace("." if decimal == "," else ",", "")
+        else:
+            decimal = "," if "," in digits else "."
     else:
         digits = re.sub(r"[^0-9" + re.escape(decimal) + r"]", "", text)
     if not re.search(r"\d", digits) or digits.count(decimal) > 1 or re.search(r"[A-Za-z]{2,}", re.sub(r"(?i)kr\.?|dkk|sek|nok|eur|usd", "", text)):
@@ -106,7 +112,7 @@ def other_decimal(text, decimal: str) -> bool:
     return any(len(re.match(r"\d*", g).group()) != 3 for g in s.split(other)[1:])
 
 
-def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None, decimal: str = ",") -> dict | None:
+def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None, decimal: str = ",", both: str = "last") -> dict | None:
     """Find the month header row and read the rows below it."""
     header_row = None
     month_cols: dict[int, int] = {}
@@ -127,6 +133,7 @@ def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None,
     first_month_col = min(month_cols)
     rows = []
     suspects: list[str] = []  # text amounts that look like they use the other decimal sign
+    unreadable: list[str] = []
     formula_cells = 0
     value_cells = 0
     for r in range(header_row + 1, len(grid)):
@@ -139,7 +146,9 @@ def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None,
             continue
         values: list[float | None] = [None] * 12
         for c, month in month_cols.items():
-            v = parse_number(row[c], decimal) if c < len(row) else None
+            v = parse_number(row[c], decimal, both) if c < len(row) else None
+            if v is None and c < len(row) and isinstance(row[c], str) and re.search(r"\d", row[c]):
+                unreadable.append(row[c].strip())  # has digits, but isn't a valid amount: skipped
             if c < len(row) and other_decimal(row[c], decimal):
                 suspects.append(str(row[c]).strip())
             is_formula = bool(formulas) and c < len(formulas[r]) and str(formulas[r][c] or "").startswith("=")
@@ -175,34 +184,35 @@ def _parse_grid(name: str, grid: list[list], formulas: list[list] | None = None,
         # Mostly formulas means a summary sheet (totals of the other sheets).
         "looks_like_summary": value_cells > 0 and formula_cells / value_cells > 0.5,
         "other_decimal": {"count": len(suspects), "example": suspects[0]} if suspects else None,
+        "unreadable": {"count": len(unreadable), "example": unreadable[0]} if unreadable else None,
     }
 
 
-def read_xlsx(data: bytes, decimal: str = ",") -> list[dict]:
+def read_xlsx(data: bytes, decimal: str = ",", both: str = "last") -> list[dict]:
     values_wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True, read_only=True)
     formulas_wb = openpyxl.load_workbook(io.BytesIO(data), data_only=False, read_only=True)
     sheets = []
     for ws in values_wb.worksheets:
         grid = [list(row) for row in ws.iter_rows(values_only=True)]
         formulas = [list(row) for row in formulas_wb[ws.title].iter_rows(values_only=True)]
-        parsed = _parse_grid(ws.title, grid, formulas, decimal)
+        parsed = _parse_grid(ws.title, grid, formulas, decimal, both)
         if parsed:
             sheets.append(parsed)
     return sheets
 
 
-def read_csv(data: bytes, name: str = "CSV", decimal: str = ",") -> list[dict]:
+def read_csv(data: bytes, name: str = "CSV", decimal: str = ",", both: str = "last") -> list[dict]:
     text = data.decode("utf-8-sig", errors="replace")
     try:
         dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
     except csv.Error:
         dialect = csv.excel
     grid = [row for row in csv.reader(io.StringIO(text), dialect)]
-    parsed = _parse_grid(name, grid, decimal=decimal)
+    parsed = _parse_grid(name, grid, decimal=decimal, both=both)
     return [parsed] if parsed else []
 
 
-def read_file(filename: str, data: bytes, decimal: str = ",") -> list[dict]:
+def read_file(filename: str, data: bytes, decimal: str = ",", both: str = "last") -> list[dict]:
     if filename.lower().endswith((".xlsx", ".xlsm")):
-        return read_xlsx(data, decimal)
-    return read_csv(data, filename.rsplit(".", 1)[0], decimal)
+        return read_xlsx(data, decimal, both)
+    return read_csv(data, filename.rsplit(".", 1)[0], decimal, both)

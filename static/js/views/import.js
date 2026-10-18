@@ -32,15 +32,17 @@ export function ImportSheet({ onClose }) {
   const [sheets, setSheets] = useState(null);
   const [file, setFile] = useState(null);
   const [decimal, setDecimal] = useState(household.settings.decimal || defaultDecimal(household.settings.language)); // for amounts written as text
+  const [both, setBoth] = useState(household.settings.decimal_both || 'last');
   const [thousands, setThousands] = useState(false); // amounts written in thousands
   const [skipEmpty, setSkipEmpty] = useState(true);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(null);
 
-  const read = async (f, dec) => {
+  const read = async (f, dec, bothRule = both) => {
     const body = new FormData();
     body.append('file', f);
     body.append('decimal', dec);
+    body.append('both', bothRule);
     setBusy(true);
     try {
       const r = await request('POST', '/api/import/preview', body);
@@ -72,6 +74,11 @@ export function ImportSheet({ onClose }) {
   const changeDecimal = (dec) => {
     setDecimal(dec);
     if (file) read(file, dec);
+  };
+
+  const changeBoth = (rule) => {
+    setBoth(rule);
+    if (file) read(file, decimal, rule);
   };
 
   const scale = thousands ? 1000 : 1;
@@ -127,7 +134,7 @@ export function ImportSheet({ onClose }) {
         <label class="field" style="width:140px"><span>${t('import.year')}</span>
           <input class="input" type="number" inputmode="numeric" value=${year} onInput=${(e) => setYear(Number(e.target.value))} /></label>
         <div class="field" style="flex:1;min-width:200px"><span>${t('settings.decimal')}</span>
-          <${DecimalChoice} value=${decimal} onChange=${changeDecimal} /></div>
+          <${DecimalChoice} value=${decimal} onChange=${changeDecimal} both=${both} onBothChange=${changeBoth} /></div>
       </div>
       <${Switch} checked=${thousands} onChange=${setThousands} label=${t('import.thousands')} hint=${t('import.thousandsHint')} />
       <${Switch} checked=${skipEmpty} onChange=${setSkipEmpty} label=${t('import.skipEmpty')} />
@@ -140,6 +147,12 @@ export function ImportSheet({ onClose }) {
           <strong>${t('import.otherDecimal', { example: hit.other_decimal.example, n: sheets.reduce((n, s) => n + (s.other_decimal?.count || 0), 0) })}</strong>
           <div style="margin-top:8px"><button class="btn small primary" onClick=${() => changeDecimal(other)}>
             ${t(other === ',' ? 'import.useComma' : 'import.useDot')}</button></div></div>`;
+      })()}
+      ${(() => {
+        const bad = sheets.filter((s) => s.include && s.unreadable);
+        if (!bad.length) return null;
+        return html`<div class="notice bad-notice"><strong>${t('import.unreadable', {
+          n: bad.reduce((n, s) => n + s.unreadable.count, 0), example: bad[0].unreadable.example })}</strong></div>`;
       })()}
       <p class="small secondary" style="margin:0">${t('import.mapHint')} ${t('import.checkHint')}</p>
       ${sheets.map((s, i) => {

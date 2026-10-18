@@ -30,6 +30,7 @@ export function Setup({ onDone, onBack }) {
     household: '',
     language: currentLanguage(),
     decimal: guessDecimal(),
+    decimal_both: 'last',
     currency: CURRENCY_BY_REGION[region.toUpperCase()] || (currentLanguage() === 'da' ? 'DKK' : 'EUR'),
     members: ['', ''],
     shared_name: t('setup.sharedDefault'),
@@ -92,7 +93,8 @@ export function Setup({ onDone, onBack }) {
       <label class="field"><span>${t('settings.currency')}</span>
         <select class="input" value=${form.currency} onChange=${(e) => set({ currency: e.target.value })}>
           ${CURRENCIES.map((c) => html`<option key=${c} value=${c}>${c}</option>`)}</select></label>
-      <div class="field"><span>${t('settings.decimal')}</span><${DecimalChoice} value=${form.decimal} onChange=${(decimal) => set({ decimal })} /></div>
+      <div class="field"><span>${t('settings.decimal')}</span><${DecimalChoice} value=${form.decimal} onChange=${(decimal) => set({ decimal })}
+        both=${form.decimal_both} onBothChange=${(decimal_both) => set({ decimal_both })} /></div>
     </div>
     <div class="field"><span>${t('setup.login')}</span>
       <span class="hint">${t('setup.loginHint')}</span>

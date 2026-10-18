@@ -14,14 +14,20 @@ import { ChecksSheet } from './checks.js';
 export const CURRENCIES = ['DKK', 'EUR', 'USD', 'GBP', 'SEK', 'NOK', 'ISK', 'CHF', 'PLN', 'CZK', 'CAD', 'AUD', 'NZD', 'JPY', 'INR', 'BRL', 'ZAR'];
 
 /** Comma, dot, or either as the decimal separator, with an example of each. */
-export function DecimalChoice({ value, onChange }) {
+export function DecimalChoice({ value, onChange, both = 'last', onBothChange }) {
+  const hint = value === ',' ? t('settings.commaHint') : value === '.' ? t('settings.dotHint') : t('settings.eitherHint');
   return html`<${Segmented} value=${value} onChange=${onChange} label=${t('settings.decimal')}
     options=${[
       { value: ',', label: `${t('settings.comma')}  1.234,56` },
       { value: '.', label: `${t('settings.dot')}  1,234.56` },
       { value: 'either', label: `${t('settings.either')}  1,5/1.5` },
     ]} />
-    ${value === 'either' && html`<span class="hint">${t('settings.eitherHint')}</span>`}`;
+    <span class="hint">${hint}</span>
+    ${value === 'either' && onBothChange && html`<div class="field" style="margin-top:8px"><span>${t('settings.bothTitle')}</span>
+      <${Segmented} value=${both} onChange=${onBothChange} label=${t('settings.bothTitle')}
+        options=${[{ value: 'last', label: t('settings.bothLast') }, { value: 'invalid', label: t('settings.bothInvalid') }]} />
+      <span class="hint">${both === 'invalid' ? t('settings.bothInvalidHint') : t('settings.bothLastHint')}</span></div>`}
+    <span class="hint">${t('settings.invalidHint')}</span>`;
 }
 
 async function run(fn, done) {
@@ -128,14 +134,18 @@ function LoginSection() {
 function HouseholdForm() {
   const { household, theme } = useStore();
   const s = household.settings;
-  const [form, setForm] = useState({
+  // What the form starts from, with defaults for settings never saved; the
+  // save button is for changes against this.
+  const [initial] = useState(() => ({
     household: s.household || '',
     language: s.language || 'en',
     decimal: s.decimal || defaultDecimal(s.language || 'en'),
+    decimal_both: s.decimal_both || 'last',
     currency: s.currency || 'USD',
-  });
+  }));
+  const [form, setForm] = useState(initial);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
-  const dirty = Object.keys(form).some((k) => form[k] !== (s[k] || ''));
+  const dirty = Object.keys(form).some((k) => form[k] !== initial[k]);
   const save = () => run(async () => {
     const settings = await api.put('/api/settings', form);
     applySettings(settings);
@@ -150,7 +160,8 @@ function HouseholdForm() {
       <label class="field"><span>${t('settings.currency')}</span>
         <select class="input" value=${form.currency} onChange=${(e) => set({ currency: e.target.value })}>
           ${(CURRENCIES.includes(form.currency) ? CURRENCIES : [form.currency, ...CURRENCIES]).map((c) => html`<option key=${c} value=${c}>${c}</option>`)}</select></label>
-      <div class="field"><span>${t('settings.decimal')}</span><${DecimalChoice} value=${form.decimal} onChange=${(decimal) => set({ decimal })} /></div>
+      <div class="field"><span>${t('settings.decimal')}</span><${DecimalChoice} value=${form.decimal} onChange=${(decimal) => set({ decimal })}
+        both=${form.decimal_both} onBothChange=${(decimal_both) => set({ decimal_both })} /></div>
       <div class="field"><span>${t('settings.theme')}</span>
         <${Segmented} value=${theme} onChange=${(v) => { setStore({ theme: v }); applyTheme(v); }}
           options=${[{ value: 'auto', label: t('settings.themeAuto') }, { value: 'light', label: t('settings.themeLight') }, { value: 'dark', label: t('settings.themeDark') }]} /></div>

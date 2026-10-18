@@ -431,7 +431,6 @@ const en = {
   'errors.UNKNOWN_STATE': 'This bank login wasn’t started here, or it took too long. Try again.',
   'errors.EXPIRED_SESSION': 'Access to the bank has expired. Log in to the bank again.',
   'settings.either': 'Both',
-  'settings.eitherHint': 'Comma and dot both work as the decimal sign. A number with both, like 1.234,56, isn’t valid, so write thousands without a separator: 1234,56.',
   'checks.title': 'Check the numbers',
   'checks.short': 'Finds amounts that look 10, 100 or 1000 times off',
   'checks.intro': 'Checked {n} amounts for ones that look wrong by a factor of 10, 100 or 1000, which is what a wrong decimal separator does. Nothing changes until you press a button.',
@@ -461,6 +460,30 @@ const en = {
   'import.useDot': 'Use dot as the decimal separator',
   'overview.monthlyBalance': 'Monthly balance',
   'overview.monthlyBalanceHint': 'Income minus expenses.',
+  'settings.commaHint': 'Comma is the decimal sign. Dots, spaces and “kr.” are ignored: 1.234,56 is read as 1234,56.',
+  'settings.dotHint': 'Dot is the decimal sign. Commas, spaces and “kr.” are ignored: 1,234.56 is read as 1234.56.',
+  'settings.eitherHint': 'Comma and dot both work as the decimal sign: 12,5 and 12.5 are the same.',
+  'settings.bothTitle': 'If a number has both a comma and a dot',
+  'settings.bothLast': 'The last is the decimal',
+  'settings.bothInvalid': 'Invalid',
+  'settings.bothLastHint': 'The last one is the decimal sign and the other is ignored: 1.234,56 and 1,234.56 are both read as 1234,56.',
+  'settings.bothInvalidHint': 'Numbers like 1.234,56 are invalid, so write thousands without a separator: 1234,56.',
+  'settings.invalidHint': 'An invalid amount turns red and isn’t saved. When importing, invalid cells are skipped, and the import says how many.',
+  'import.unreadable': '{n} cells, like “{example}”, can’t be read as amounts with this decimal setting and will be skipped.',
+  'plan.startFromHint.one': 'Copies the 1 item, so you only change what’s different.',
+  'plan.copied.one': '1 item copied',
+  'import.rows.one': '1 row',
+  'import.import.one': 'Import 1 sheet into {year}',
+  'month.unsorted.one': '1 bank transaction to sort',
+  'bank.connected.one': 'Bank connected, 1 transaction fetched',
+  'bank.synced.one': 'Synced, 1 new transaction',
+  'bank.validFor.one': 'Access for 1 more day',
+  'bank.daysAgo.one': '1 day ago',
+  'bank.autoSync.one': 'Syncs automatically every hour.',
+  'checks.found.one': '1 thing looks wrong',
+  'import.suspicious.one': '1 amount looks wrong. Check it under Settings → Check the numbers.',
+  'import.otherDecimal.one': '1 amount, “{example}”, looks like it uses the other decimal separator. Importing like this would make it 100 or 1000 times off.',
+  'import.unreadable.one': '1 cell, “{example}”, can’t be read as an amount with this decimal setting and will be skipped.',
 };
 
 const da = {
@@ -891,7 +914,6 @@ const da = {
   'errors.UNKNOWN_STATE': 'Bank-login blev ikke startet herfra, eller det tog for lang tid. Prøv igen.',
   'errors.EXPIRED_SESSION': 'Adgangen til banken er udløbet. Log ind i banken igen.',
   'settings.either': 'Begge',
-  'settings.eitherHint': 'Både komma og punktum virker som decimaltegn. Et tal med begge, fx 1.234,56, er ugyldigt, så skriv tusinder uden skilletegn: 1234,56.',
   'checks.title': 'Tjek tallene',
   'checks.short': 'Finder beløb, der ser ud til at være 10, 100 eller 1000 gange forkerte',
   'checks.intro': 'Har tjekket {n} beløb for nogen, der ser ud til at være 10, 100 eller 1000 gange forkerte, som et forkert decimaltegn giver. Intet ændres, før du trykker på en knap.',
@@ -921,6 +943,29 @@ const da = {
   'import.useDot': 'Brug punktum som decimaltegn',
   'overview.monthlyBalance': 'Månedlig balance',
   'overview.monthlyBalanceHint': 'Indtægter minus udgifter.',
+  'settings.commaHint': 'Komma er decimaltegn. Punktummer, mellemrum og “kr.” ignoreres: 1.234,56 læses som 1234,56.',
+  'settings.dotHint': 'Punktum er decimaltegn. Kommaer, mellemrum og “kr.” ignoreres: 1,234.56 læses som 1234.56.',
+  'settings.eitherHint': 'Både komma og punktum virker som decimaltegn: 12,5 og 12.5 er det samme.',
+  'settings.bothTitle': 'Hvis et tal har både komma og punktum',
+  'settings.bothLast': 'Det sidste er decimaltegn',
+  'settings.bothInvalid': 'Ugyldigt',
+  'settings.bothLastHint': 'Det sidste tegn er decimaltegn, og det andet ignoreres: 1.234,56 og 1,234.56 læses begge som 1234,56.',
+  'settings.bothInvalidHint': 'Tal som 1.234,56 er ugyldige, så skriv tusinder uden skilletegn: 1234,56.',
+  'settings.invalidHint': 'Et ugyldigt beløb bliver rødt og gemmes ikke. Ved import springes ugyldige celler over, og importen fortæller hvor mange.',
+  'import.unreadable': '{n} celler, fx “{example}”, kan ikke læses som beløb med dette decimaltegn og bliver sprunget over.',
+  'plan.startFromHint.one': 'Kopierer den ene post, så I kun skal rette det, der er anderledes.',
+  'plan.copied.one': '1 post kopieret',
+  'import.rows.one': '1 række',
+  'month.unsorted.one': '1 transaktion fra banken skal sorteres',
+  'bank.connected.one': 'Banken er forbundet, 1 transaktion hentet',
+  'bank.synced.one': 'Synkroniseret, 1 ny transaktion',
+  'bank.validFor.one': 'Adgang i 1 dag endnu',
+  'bank.daysAgo.one': 'for 1 dag siden',
+  'bank.autoSync.one': 'Synkroniserer automatisk hver time.',
+  'checks.found.one': '1 ting ser forkert ud',
+  'import.suspicious.one': '1 beløb ser forkert ud. Tjek det under Indstillinger → Tjek tallene.',
+  'import.otherDecimal.one': '1 beløb, “{example}”, ser ud til at bruge det andet decimaltegn. Importeres det sådan, bliver det 100 eller 1000 gange forkert.',
+  'import.unreadable.one': '1 celle, “{example}”, kan ikke læses som et beløb med dette decimaltegn og bliver sprunget over.',
 };
 
 const DICTS = { en, da };
@@ -942,7 +987,10 @@ export function has(key) {
 }
 
 export function t(key, vars) {
-  let s = current[key] ?? en[key] ?? key;
+  // A count of exactly 1 uses the key's '.one' form when the language has one.
+  const dict = key in current ? current : en;
+  const one = vars && Number(vars.n) === 1 ? dict[key + '.one'] : undefined;
+  let s = one ?? dict[key] ?? key;
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v));
   return s;
 }

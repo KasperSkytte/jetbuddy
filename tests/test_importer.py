@@ -22,7 +22,17 @@ from app.importer import other_decimal, parse_number
     ],
 )
 def test_parse_number(text, decimal, value):
-    assert parse_number(text, decimal) == value
+    assert parse_number(text, decimal, "invalid") == value
+
+
+@pytest.mark.parametrize(
+    "text, value",
+    [("1.234,56", 1234.56), ("1,234.56", 1234.56), ("-1.234,5", -1234.5), ("12,5", 12.5), ("12.5", 12.5),
+     ("1.234.567", None), ("1,2,3", None), ("1.2,3.4", None)],
+)
+def test_parse_number_either_last_wins(text, value):
+    """With 'last', a number with both takes the last one as the decimal sign."""
+    assert parse_number(text, "either", "last") == value
 
 
 @pytest.mark.parametrize(

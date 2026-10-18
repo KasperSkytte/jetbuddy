@@ -11,7 +11,7 @@ export function defaultDecimal(language) {
   return language === 'en' ? '.' : ',';
 }
 
-export function setFormat({ language = 'en', currency = 'USD', decimal } = {}) {
+export function setFormat({ language = 'en', currency = 'USD', decimal, both = 'last' } = {}) {
   const locale = LANGUAGE_LOCALE[language] || 'en-GB';
   // 'either': comma and dot both mean decimal, so numbers are shown with the
   // language's usual decimal sign and a thin space between thousands.
@@ -27,6 +27,7 @@ export function setFormat({ language = 'en', currency = 'USD', decimal } = {}) {
   fmt = {
     locale,
     either,
+    both: both === 'invalid' ? 'invalid' : 'last', // 'either' with a comma and a dot: the last is the decimal sign, or invalid
     decimal: dec,
     group: either ? '\u202f' : dec === ',' ? '.' : ',',
     money: make({ style: 'currency', currency, maximumFractionDigits: 0, minimumFractionDigits: 0 }, { maximumFractionDigits: 0 }),
@@ -94,11 +95,19 @@ export function parseAmount(text) {
   if (!terms) return NaN;
   let total = 0;
   for (const term of terms) {
-    // With 'either', comma or dot is the decimal sign, but not both in one number.
-    if (fmt.either && term.includes(',') && term.includes('.')) return NaN;
-    const dec = fmt.either ? (term.includes(',') ? ',' : '.') : fmt.decimal;
-    if (term.split(dec).length > 2 || !/\d/.test(term)) return NaN;
-    total += Number(term.replace(dec, '.'));
+    let value = term;
+    let dec = fmt.decimal;
+    if (fmt.either) {
+      // Comma or dot is the decimal sign. With both, the last one is (and the
+      // other is ignored), or the number is invalid, as the setting says.
+      if (value.includes(',') && value.includes('.')) {
+        if (fmt.both === 'invalid') return NaN;
+        dec = value.lastIndexOf(',') > value.lastIndexOf('.') ? ',' : '.';
+        value = value.split(dec === ',' ? '.' : ',').join('');
+      } else dec = value.includes(',') ? ',' : '.';
+    }
+    if (value.split(dec).length > 2 || !/\d/.test(value)) return NaN;
+    total += Number(value.replace(dec, '.'));
   }
   return Number.isFinite(total) ? Math.round(total * 100) / 100 : NaN;
 }

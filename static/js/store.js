@@ -105,6 +105,6 @@ export function applyTheme(theme) {
 /** Apply the household's language and number format everywhere. */
 export function applySettings(settings = {}) {
   setLanguage(settings.language || navigator.language);
-  setFormat({ language: (settings.language || navigator.language).slice(0, 2), currency: settings.currency, decimal: settings.decimal });
+  setFormat({ language: (settings.language || navigator.language).slice(0, 2), currency: settings.currency, decimal: settings.decimal, both: settings.decimal_both });
   document.documentElement.lang = settings.language || 'en';
 }

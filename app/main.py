@@ -344,6 +344,7 @@ class SetupIn(BaseModel):
     household: str = Field(min_length=1, max_length=100)
     language: str = "en"
     decimal: Literal[",", ".", "either"] = ","
+    decimal_both: Literal["last", "invalid"] = "last"
     currency: str = "USD"
     members: list[str] = Field(min_length=1, max_length=20)
     shared_name: str = Field("Shared", min_length=1, max_length=60)
@@ -413,7 +414,8 @@ def _setup_household(conn: sqlite3.Connection, body: SetupIn) -> None:
     with db.transaction(conn):
         set_settings(
             conn,
-            {"household": body.household, "language": body.language, "decimal": body.decimal, "currency": body.currency},
+            {"household": body.household, "language": body.language, "decimal": body.decimal,
+             "decimal_both": body.decimal_both, "currency": body.currency},
         )
         for i, name in enumerate(n.strip() for n in body.members):
             if name:
@@ -439,6 +441,9 @@ class SettingsIn(BaseModel):
     household: str | None = Field(None, max_length=100)
     language: str | None = Field(None, max_length=10)
     decimal: Literal[",", ".", "either"] | None = None
+    # With decimal 'either': a number with both comma and dot takes the last
+    # one as the decimal separator ('last'), or is rejected ('invalid').
+    decimal_both: Literal["last", "invalid"] | None = None
     currency: str | None = Field(None, max_length=3)
 
 
@@ -880,13 +885,17 @@ def export_xlsx(year: int, group: Literal["auto", "category", "member"] = "auto"
 
 
 @app.post("/api/import/preview")
-async def import_preview(file: UploadFile = File(...), decimal: Literal[",", ".", "either"] = Form(",")):
+async def import_preview(
+    file: UploadFile = File(...),
+    decimal: Literal[",", ".", "either"] = Form(","),
+    both: Literal["last", "invalid"] = Form("last"),
+):
     """Read a spreadsheet. decimal: the decimal separator of amounts written as text."""
     data = await file.read(MAX_IMPORT_BYTES + 1)
     if len(data) > MAX_IMPORT_BYTES:
         raise AppError(413, "FILE_TOO_LARGE", "file is too large")
     try:
-        return {"sheets": importer.read_file(file.filename or "", data, decimal)}
+        return {"sheets": importer.read_file(file.filename or "", data, decimal, both)}
     except Exception as e:  # openpyxl raises many different errors for bad files
         raise AppError(422, "FILE_UNREADABLE", f"could not read the file: {e}")
 
