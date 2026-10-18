@@ -146,7 +146,7 @@ function SetupGuide({ status, onDone }) {
       <${Step} n="5" title=${t('bank.s5Title')}>
         <div class="small secondary">${t('bank.s5Text')}</div>
         <input class="input" style="margin-top:6px" value=${appId} onInput=${(e) => setAppId(e.target.value)}
-          placeholder="03028be5-b3cf-45eb-b390-ab8a0270a70a" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label=${t('bank.appId')} />
+          placeholder="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label=${t('bank.appId')} />
         <button class="btn primary" style="align-self:flex-start;margin-top:8px" disabled=${busy || !appId.trim() || (!cert && !ownKey)} onClick=${save}>
           ${busy ? t('bank.testing') : t('bank.s5Button')}</button>
         <${TestResult} result=${result} />

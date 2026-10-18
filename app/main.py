@@ -863,7 +863,7 @@ async def restore(request: Request, conn: sqlite3.Connection = Conn):
 
 @app.get("/api/export/{year}.xlsx")
 def export_xlsx(year: int, group: Literal["auto", "category", "member"] = "auto", conn: sqlite3.Connection = Conn):
-    """The year's budget as an Excel workbook, e.g. for the bank."""
+    """The year's budget as an Excel workbook."""
     data, filename = export_workbook.build(conn, year, group)
     return Response(
         data,

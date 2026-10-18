@@ -3,7 +3,7 @@ import { useStore } from '../store.js';
 import { t } from '../i18n.js';
 import { Sheet, Segmented, Icon } from '../ui.js';
 
-/** Download the budget as an Excel workbook, e.g. for the bank. */
+/** Download the budget as an Excel workbook. */
 export function ExportSheet({ onClose }) {
   const { household, year: current } = useStore();
   const years = [...new Set([...household.years, current])].sort((a, b) => b - a);

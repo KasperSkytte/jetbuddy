@@ -172,7 +172,7 @@ export function Overview() {
       <section class="card span-2 export-card">
         <${Icon} name="table" />
         <div class="spacer"><strong>${t('export.cardTitle')}</strong><div class="small secondary">${t('export.cardText')}</div></div>
-        <button class="btn" onClick=${() => setExporting(true)}><${Icon} name="download" size=${18} />${t('export.button')}</button>
+        <button class="btn" onClick=${() => setExporting(true)}><${Icon} name="download" size=${18} />${t('export.download')}</button>
       </section>
     </div>
     ${exporting && html`<${ExportSheet} onClose=${() => setExporting(false)} />`}

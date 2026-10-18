@@ -156,7 +156,7 @@ def save_config(bdir: Path, app_id: str, private_key: str | None = None) -> None
         raise ValueError("not a valid private key (.pem or .key file)") from e
     app_id = app_id.strip()
     if not re.fullmatch(r"[0-9a-fA-F-]{20,64}", app_id):
-        raise ValueError("that doesn't look like an application ID (it looks like 03028be5-b3cf-…)")
+        raise ValueError("that doesn't look like an application ID (it looks like aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee)")
     _write_secret(f["key"], private_key.strip() + "\n")
     f["config"].write_text(json.dumps({"app_id": app_id}))
     if cert:

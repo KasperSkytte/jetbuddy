@@ -1,5 +1,5 @@
-"""The budget as an Excel workbook, laid out for someone else to read: a bank
-advisor looking at a loan application, say. Values, not formulas, so it reads
+"""The budget as an Excel workbook, laid out for someone else to read as well
+as yourself. Values, not formulas, so it reads
 the same in every viewer (formulas show as empty in some previews)."""
 
 import io
@@ -23,7 +23,7 @@ TEXT = {
         "income": "Income", "expenses": "Expenses", "total_income": "Total income", "total_expenses": "Total expenses",
         "of_fixed": "of which fixed expenses", "of_savings": "of which transferred to savings",
         "surplus": "Surplus (income − expenses)", "saved": "Saved in total (savings + surplus)", "savings_rate": "Savings rate",
-        "after_fixed": "Left after fixed expenses",
+        "after_fixed": "Disposable income (after fixed expenses)",
         "per_person": "Per person", "person": "Person", "income_month": "Income per month", "expenses_month": "Expenses per month",
         "income_year": "Income per year", "expenses_year": "Expenses per year",
         "item": "Item", "who": "Who", "fixed": "Fixed", "total": "Total", "avg": "Avg./month",
@@ -45,7 +45,7 @@ TEXT = {
         "income": "Indtægter", "expenses": "Udgifter", "total_income": "Indtægter i alt", "total_expenses": "Udgifter i alt",
         "of_fixed": "heraf faste udgifter", "of_savings": "heraf overført til opsparing",
         "surplus": "Overskud (indtægter − udgifter)", "saved": "Opsparing i alt (opsparing + overskud)", "savings_rate": "Opsparingsrate",
-        "after_fixed": "Til rådighed efter faste udgifter",
+        "after_fixed": "Rådighedsbeløb",
         "per_person": "Pr. person", "person": "Person", "income_month": "Indtægter pr. md.", "expenses_month": "Udgifter pr. md.",
         "income_year": "Indtægter pr. år", "expenses_year": "Udgifter pr. år",
         "item": "Post", "who": "Hvem", "fixed": "Fast", "total": "I alt", "avg": "Gns./md.",
