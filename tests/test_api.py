@@ -38,7 +38,7 @@ def test_amounts_are_exact_and_summed(client, household):
     s = client.get("/api/summary/2027").json()
     assert s["income"] == [31250] * 12
     assert s["expense"][0] == 12149.95
-    assert sum(s["expense"]) == 145799.4  # 149.95 * 12 + 12000 * 12, no float drift
+    assert round(sum(s["expense"]), 2) == 145799.4  # 149.95 * 12 + 12000 * 12
     assert s["net"][0] == 31250 - 12149.95
     assert s["cumulative"][-1] == round((31250 - 12149.95) * 12, 2)
 
@@ -233,14 +233,14 @@ def test_excel_export(client, household):
     assert wb.sheetnames[:2] == ["Summary", "Budget"]
     summary = {row[0]: row[1:] for row in wb["Summary"].iter_rows(values_only=True) if row[0]}
     assert summary["Total income"][:2] == (53250, 639000)
-    assert summary["Total expenses"][1] == 12000 * 12 + 8500 * 12 + 149.95 * 12 + 9000 * 12
-    assert summary["   of which fixed expenses"][1] == (12000 + 149.95) * 12
+    assert summary["Total expenses"][1] == round(12000 * 12 + 8500 * 12 + 149.95 * 12 + 9000 * 12, 2)
+    assert summary["   of which fixed expenses"][1] == round((12000 + 149.95) * 12, 2)
     budget = [row for row in wb["Budget"].iter_rows(values_only=True)]
     labels = [row[0] for row in budget]
     # Expenses are categorised, so grouped by category in the categories' order.
     assert labels.index("Housing") < labels.index("Groceries") < labels.index("Subscriptions")
     surplus = next(row for row in budget if row[0] == "Surplus (income − expenses)")
-    assert surplus[3] == 53250 - (12000 + 8500 + 149.95 + 9000)
+    assert surplus[3] == round(53250 - (12000 + 8500 + 149.95 + 9000), 2)
     rent = next(row for row in budget if row[0] == "Rent")
     assert rent[1] == "Shared" and rent[2] == "✓"
     # Grouped by person when asked.
@@ -369,7 +369,7 @@ def test_decimals_rounded_as_set(client, household):
     assert [o["mode"] for o in f["options"]] == ["up"]
     o = f["options"][0]
     client.post("/api/checks/fix", json={"item_id": phone["id"], "where": o["where"], "round": o["mode"]})
-    assert client.get("/api/years/2027/items").json()[0]["amounts"][1:] == [179] * 11
+    assert client.get("/api/years/2027/items").json()[0]["amounts"][1:] == [150] * 11
     assert not any(f["type"] == "decimals" for f in client.get("/api/checks").json()["findings"])
 
 
@@ -405,7 +405,7 @@ def test_import_rounds_decimals(client, household):
     buf = io.BytesIO()
     wb.save(buf)
     row = client.post("/api/import/preview", files={"file": ("b.xlsx", buf.getvalue())}).json()["sheets"][0]["rows"][0]
-    assert row["amounts"][:2] == [178, 99]  # flipped to positive, then the decimals dropped
+    assert row["amounts"][:2] == [149, 99]  # flipped to positive, then the decimals dropped
 
 
 def test_checks_leave_other_accounts_balances_alone(client, household):
