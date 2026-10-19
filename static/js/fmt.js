@@ -91,7 +91,12 @@ export function percent(v) {
  */
 export function parseAmount(text) {
   if (text == null || String(text).trim() === '') return null;
-  if (fmt.decimals === 'only') return /^[0-9]+$/.test(String(text).trim()) ? Number(String(text).trim()) : NaN;
+  if (fmt.decimals === 'only') {
+    // Digits only; the thousands separators amounts are shown with ("2.160") are fine.
+    const s = String(text).trim();
+    const grouped = new RegExp(`^[0-9]{1,3}(${fmt.group === '\u202f' ? '[\u202f ]' : '\\' + fmt.group}[0-9]{3})+$`);
+    return /^[0-9]+$/.test(s) || grouped.test(s) ? Number(s.replace(/[^0-9]/g, '')) : NaN;
+  }
   const keep = fmt.either ? /[^0-9,.+-]/g : fmt.decimal === ',' ? /[^0-9,+-]/g : /[^0-9.+-]/g;
   const s = String(text).replace(/[−–]/g, '-').replace(keep, '');
   const terms = s.match(/[+-]?[^+-]+/g);
