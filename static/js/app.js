@@ -56,7 +56,7 @@ function Shell() {
     <nav class="nav" aria-label=${t('nav.label')}>
       <div class="brand"><${Logo} size=${30} /> Sparegrisen</div>
       ${PAGES.map((p) => html`<a key=${p.path} href=${'#/' + p.path} class=${p === page ? 'active' : ''} aria-current=${p === page ? 'page' : null}>
-        <span class="icon-wrap"><${Icon} name=${p.icon} /></span>${t(p.title)}</a>`)}
+        <span class="icon-wrap"><${Icon} name=${p.icon} /></span><span class="nav-label">${t(p.title)}</span></a>`)}
     </nav>
     <div>
       <header class=${'topbar' + (scrolled ? ' scrolled' : '')}>
