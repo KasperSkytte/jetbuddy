@@ -152,7 +152,7 @@ function ItemLine({ row, onOpen }) {
     <${Dot} color=${memberColor(household, item.member_id)} />
     <span class="spacer" style="min-width:0;text-align:left">
       <span class="ellipsis" style="display:block;font-weight:560">${item.name}<span class="small muted" style="font-weight:400"> · ${memberById(household, item.member_id)?.name}</span></span>
-      <span class="small secondary">${t('reconcile.budgetVsBank', { planned: amount(planned), actual: actual == null ? '–' : amount(actual) })}</span>
+      <span class="small secondary">${t(item.kind === 'income' ? 'reconcile.budgetVsReceived' : 'reconcile.budgetVsPaid', { planned: amount(planned), actual: actual == null ? '–' : amount(actual) })}</span>
     </span>
     <span class=${'rc-status ' + status + (bad ? ' bad' : status === 'ok' ? ' good' : '')}>${STATUS_LABEL[status](row)}</span>
   </button>`;
@@ -187,7 +187,7 @@ export function ItemBankSheet({ item, year, month, txs, items, onClose, onChange
           ${members(household).map((m) => html`<option key=${m.id} value=${m.id}>${m.name}</option>`)}</select></label>
       <div class="sum-strip" style="grid-template-columns:repeat(3,1fr)">
         <div><div class="label">${t('reconcile.budget')}</div><div class="value">${planned != null ? amount(planned) : '–'}</div></div>
-        <div><div class="label">${t('reconcile.bank')}</div><div class="value">${actual != null ? amount(actual) : '–'}</div></div>
+        <div><div class="label">${t(item.kind === 'income' ? 'reconcile.received' : 'reconcile.paid')}</div><div class="value">${actual != null ? amount(actual) : '–'}</div></div>
         <div><div class="label">${t('reconcile.difference')}</div><div class="value">${actual != null ? signedMoney(actual - (planned || 0)) : '–'}</div></div>
       </div>
       <div>
@@ -250,6 +250,7 @@ export function Reconcile({ year, month, items, txs, onChanged }) {
 
   const itemsCard = html`<section class="card flush" style="margin-bottom:12px">
     <div class="member-head"><${Icon} name="plan" /><h2 class="spacer">${t('reconcile.items')}</h2></div>
+    <p class="small secondary" style="margin:0;padding:0 16px 8px">${t('reconcile.itemsHint')}</p>
     <div style="padding:0 16px 8px"><${Chips} label=${t('reconcile.items')} value=${filter} onChange=${setFilter}
       options=${['differ', 'missing', 'ok', 'all'].map((k) => ({ value: k, label: `${t('reconcile.f_' + k)} (${groups[k].length})` }))} /></div>
     ${groups[filter].length === 0
