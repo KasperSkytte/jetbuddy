@@ -76,6 +76,11 @@ def account_balances(conn: sqlite3.Connection, through_year: int) -> dict[int, d
     for acc in conn.execute("SELECT id, kind FROM accounts"):
         flow = net if acc["kind"] == "main" else linked.get(acc["id"], {})
         snaps = snapshots.get(acc["id"], {})
+        if acc["kind"] == "expense":
+            # Money moved there is spent from there, which the budget doesn't
+            # see: only real balances, nothing worked out.
+            out[acc["id"]] = {k: (v, sources[(acc["id"], *k)]) for k, v in snaps.items() if k[0] <= through_year}
+            continue
         if not snaps:
             out[acc["id"]] = {}
             continue

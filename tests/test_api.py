@@ -2,6 +2,7 @@ import io
 
 import openpyxl
 
+from app import db
 from tests.conftest import PASSWORD, new_budget
 
 
@@ -416,3 +417,41 @@ def test_checks_leave_other_accounts_balances_alone(client, household):
     client.put(f"/api/accounts/{savings['id']}/balance", json={"year": 2027, "month": 1, "amount": 500000})
     client.put(f"/api/accounts/{savings['id']}/balance", json={"year": 2027, "month": 3, "amount": 5000})
     assert not any(f["type"] == "balance" for f in client.get("/api/checks").json()["findings"])
+
+
+def test_one_budget_account_and_expense_accounts(client, household):
+    main = account(household, "main")
+    card = client.post("/api/accounts", json={"name": "Card", "kind": "expense"}).json()
+    assert card["in_overview"] == 0  # expense accounts stay off the overview unless chosen
+    # Making it the budget account turns the old one into an expense account.
+    client.patch(f"/api/accounts/{card['id']}", json={"kind": "main"})
+    kinds = {a["id"]: a["kind"] for a in client.get("/api/state").json()["accounts"]}
+    assert kinds[card["id"]] == "main" and kinds[main["id"]] == "expense"
+    assert list(kinds.values()).count("main") == 1
+    # An expense account shows its real balances only, nothing worked out from the budget.
+    client.put(f"/api/accounts/{main['id']}/balance", json={"year": 2027, "month": 2, "amount": 900})
+    acc = next(a for a in client.get("/api/summary/2027").json()["accounts"] if a["id"] == main["id"])
+    assert acc["balances"][1] == 900 and acc["balances"][2] is None
+
+
+def test_migration_keeps_one_budget_account(tmp_path):
+    import sqlite3
+    conn = sqlite3.connect(tmp_path / "old.db")
+    conn.row_factory = sqlite3.Row
+    db.migrate(conn, db.MIGRATIONS[:5])  # as before expense accounts
+    conn.executescript("""
+        INSERT INTO accounts (id, name, kind, sort) VALUES (1, 'A', 'main', 0), (2, 'B', 'main', 1), (3, 'S', 'savings', 2);
+        INSERT INTO account_balances (account_id, year, month, cents) VALUES (2, 2027, 1, 100);
+    """)
+    db.migrate(conn)
+    rows = {r["id"]: (r["kind"], r["in_overview"]) for r in conn.execute("SELECT * FROM accounts")}
+    assert rows == {1: ("main", 1), 2: ("expense", 0), 3: ("savings", 1)}
+    assert conn.execute("SELECT COUNT(*) FROM account_balances").fetchone()[0] == 1  # nothing cascaded away
+
+
+def test_measure_day():
+    from datetime import date
+    from app.banking import measure_day
+    assert measure_day(2026, 10, "last") == date(2026, 10, 31)
+    assert measure_day(2026, 10, "before_payday") == date(2026, 10, 29)  # last weekday Fri 30th
+    assert measure_day(2026, 5, "before_payday") == date(2026, 5, 28)  # 31st is a Sunday: Friday 29th

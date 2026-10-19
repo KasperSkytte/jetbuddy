@@ -237,7 +237,7 @@ select.input { appearance: none; padding-right: 34px; background-image: linear-g
 .chip.active { background: var(--text); border-color: var(--text); color: var(--page); }
 .chip .dot { width: 9px; height: 9px; }
 
-.segmented { display: inline-flex; padding: 3px; gap: 2px; background: var(--surface-2); border-radius: 999px; }
+.segmented { display: inline-flex; max-width: 100%; padding: 3px; gap: 2px; background: var(--surface-2); border-radius: 999px; }
 .segmented button { border: 0; background: none; min-height: 34px; padding: 0 14px; border-radius: 999px; font-weight: 560; font-size: 14px; color: var(--text-2); }
 .segmented button.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
 
@@ -532,3 +532,7 @@ details.more summary { cursor: pointer; color: var(--accent-ink); font-weight: 5
 .proposal .btn { min-height: 28px; padding: 2px 10px; }
 .proposal > .spacer { min-width: 0; overflow-wrap: anywhere; line-height: 1.35; }
 .proposal > svg { flex: none; }
+@media (max-width: 520px) {
+  .field > .segmented { display: flex; width: 100%; }
+  .field > .segmented button { flex: 1 1 0; min-width: 0; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}

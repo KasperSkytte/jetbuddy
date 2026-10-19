@@ -181,6 +181,26 @@ MIGRATIONS = [
     """
     ALTER TABLE bank_rules ADD COLUMN amount_cents INTEGER;
     """,
+    # Expense accounts: money moved there from the budget account is spent
+    # from there (a card account, pocket money). Not on the overview unless
+    # chosen. And only ever one budget account: any extra become expense
+    # accounts. (A table can't change its CHECK, so it is rebuilt.)
+    """
+    CREATE TABLE accounts_new (
+        id          INTEGER PRIMARY KEY,
+        name        TEXT NOT NULL,
+        kind        TEXT NOT NULL CHECK (kind IN ('main', 'savings', 'expense')),
+        color       INTEGER NOT NULL DEFAULT 0,
+        sort        INTEGER NOT NULL DEFAULT 0,
+        archived    INTEGER NOT NULL DEFAULT 0,
+        in_overview INTEGER NOT NULL DEFAULT 1
+    );
+    INSERT INTO accounts_new (id, name, kind, color, sort, archived) SELECT id, name, kind, color, sort, archived FROM accounts;
+    DROP TABLE accounts;
+    ALTER TABLE accounts_new RENAME TO accounts;
+    UPDATE accounts SET kind = 'expense', in_overview = 0
+        WHERE kind = 'main' AND id != (SELECT id FROM accounts WHERE kind = 'main' ORDER BY sort, id LIMIT 1);
+    """,
 ]
 
 
@@ -197,8 +217,16 @@ def connect(path: Path) -> sqlite3.Connection:
 
 def migrate(conn: sqlite3.Connection, migrations: list[str] = MIGRATIONS) -> None:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    for i, script in enumerate(migrations[version:], start=version):
-        conn.executescript(f"BEGIN; {script}\nPRAGMA user_version = {i + 1}; COMMIT;")
+    if version >= len(migrations):
+        return
+    # Off while migrating, so rebuilding a table doesn't cascade to the rows
+    # that point at it.
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        for i, script in enumerate(migrations[version:], start=version):
+            conn.executescript(f"BEGIN; {script}\nPRAGMA user_version = {i + 1}; COMMIT;")
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
 
 
 def budget_dir(budget_id: int) -> Path:

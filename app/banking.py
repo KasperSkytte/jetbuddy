@@ -437,7 +437,8 @@ def ensure_accounts(conn: sqlite3.Connection) -> None:
     decides which accounts there are, and the person names them. A new bank
     account takes over a manual account with the same name, or the free
     budget or savings account of its kind (the ones set up with the
-    household), or else becomes a new account named like at the bank.
+    household), or else becomes a new account named like at the bank: the
+    budget account if there is none, else a savings or expense account.
     Savings accounts follow the balance only; their transactions are
     transfers in."""
     accounts = [dict(r) for r in conn.execute("SELECT * FROM accounts ORDER BY sort, id")]
@@ -456,11 +457,13 @@ def ensure_accounts(conn: sqlite3.Connection) -> None:
         if match is None:
             match = next((a for a in free if a["kind"] == ("savings" if savings else "main")), None)
         if match is None:
+            # One budget account; other everyday accounts are expense accounts.
             has_main = any(a["kind"] == "main" for a in accounts)
-            kind = "main" if not savings and not has_main else "savings"
+            kind = "savings" if savings else "expense" if has_main else "main"
             cur = conn.execute(
-                "INSERT INTO accounts (name, kind, color, sort) VALUES (?, ?, ?, (SELECT COALESCE(MAX(sort), -1) + 1 FROM accounts))",
-                (name or "Bank", kind, len(accounts) % 8),
+                "INSERT INTO accounts (name, kind, color, sort, in_overview) "
+                "VALUES (?, ?, ?, (SELECT COALESCE(MAX(sort), -1) + 1 FROM accounts), ?)",
+                (name or "Bank", kind, len(accounts) % 8, int(kind != "expense")),
             )
             match = {"id": cur.lastrowid, "name": name, "kind": kind, "archived": 0}
             accounts.append(match)
@@ -580,25 +583,45 @@ def _month_end(y: int, m: int) -> date:
     return (date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)) - timedelta(days=1)
 
 
+def measure_day(y: int, m: int, mode: str = "last") -> date:
+    """The day a month's balance is read at the end of: the last day of the
+    month, or with 'before_payday' the day before the month's last weekday,
+    before the salary that usually comes then makes every account look full."""
+    end = _month_end(y, m)
+    if mode != "before_payday":
+        return end
+    while end.weekday() >= 5:  # Saturday, Sunday
+        end -= timedelta(days=1)
+    return end - timedelta(days=1)
+
+
+def balance_day_mode(conn: sqlite3.Connection) -> str:
+    r = conn.execute("SELECT value FROM settings WHERE key = 'balance_day'").fetchone()
+    return "before_payday" if r and json.loads(r[0]) == "before_payday" else "last"
+
+
 def update_month_balances(conn: sqlite3.Connection) -> None:
     """Save the real end-of-month balance of every Jetbuddy account that has
-    bank accounts linked, for each completed month their transactions cover.
-    A balance typed in by hand is left alone."""
+    bank accounts linked, for each month their transactions cover whose
+    measuring day (see measure_day) is over. A balance typed in by hand is
+    left alone."""
     mode = bank_mode(conn)
     groups: dict[int, list] = defaultdict(list)
     for ba in conn.execute(
         "SELECT * FROM bank_accounts WHERE account_id IS NOT NULL AND balance_cents IS NOT NULL AND history_from IS NOT NULL"
     ):
         groups[ba["account_id"]].append(ba)
-    this_month = date.today().replace(day=1)
+    today = date.today()
+    day_mode = balance_day_mode(conn)
     for account_id, bank_accounts in groups.items():
-        # The months every linked bank account can say something about.
+        # The months every linked bank account can say something about, up
+        # to the last one whose measuring day is over.
         start = max(date.fromisoformat(ba["history_from"]) for ba in bank_accounts) - timedelta(days=1)
         months = []
         y, m = start.year, start.month
-        while date(y, m, 1) < this_month:
-            end = _month_end(y, m)
-            if end >= start:
+        while date(y, m, 1) <= today:
+            end = measure_day(y, m, day_mode)
+            if start <= end < today:
                 months.append((y, m, end))
             y, m = (y + 1, 1) if m == 12 else (y, m + 1)
         totals: dict[tuple[int, int], int] = defaultdict(int)

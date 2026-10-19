@@ -207,7 +207,8 @@ export function ItemSheet({ year, item, member, kind, focusMonth, initial, onClo
   };
 
   const cats = categories(household, form.kind);
-  const savingsAccounts = household.accounts.filter((a) => a.kind === 'savings' && !a.archived);
+  // Accounts money can move to from the budget account: saved, or spent from there.
+  const savingsAccounts = household.accounts.filter((a) => a.kind !== 'main' && !a.archived);
 
   return html`<${Sheet} title=${isNew ? (form.kind === 'income' ? t('item.newIncome') : t('item.newExpense')) : item.name} onClose=${onClose}
     footer=${html`

@@ -4,7 +4,7 @@ import { t } from '../i18n.js';
 import { money, signedMoney, percent, monthNames, sum } from '../fmt.js';
 import { ColumnChart, LineChart, BarList, ChartCard, ChartTable, Legend, TrailChart } from '../charts.js';
 import { Dot, Empty, Icon, seriesColor } from '../ui.js';
-import { members, memberById, memberColor, categoryById, accountById, INCOME_COLOR, EXPENSE_COLOR, referenceMonth, monthTotals } from '../model.js';
+import { members, memberById, memberColor, categoryById, accountById, INCOME_COLOR, EXPENSE_COLOR, referenceMonth, monthTotals, balanceLabel } from '../model.js';
 import { CopyYearBanner } from './plan.js';
 import { ExportSheet } from './export.js';
 import { InstallTip } from './install.js';
@@ -79,7 +79,7 @@ export function Overview() {
 
   const accounts = s.accounts
     .map((a) => ({ ...a, account: accountById(household, a.id) }))
-    .filter((a) => a.account && !a.account.archived);
+    .filter((a) => a.account && !a.account.archived && a.account.in_overview !== false);
 
   return html`<div class=${summary.loading ? 'refetching' : ''}>
     <${ReliabilityBanner} />
@@ -135,7 +135,7 @@ export function Overview() {
       </${ChartCard}>
 
       ${accounts.length > 0 && html`<${ChartCard} title=${t('overview.accounts')}
-        table=${html`<${ChartTable} labels=${long.map((m) => t('overview.endOf', { month: m }))} total=${false} series=${accounts.map((a) => ({ name: a.account.name, values: a.balances }))} />`}>
+        table=${html`<${ChartTable} labels=${long.map((m) => balanceLabel(household, m))} total=${false} series=${accounts.map((a) => ({ name: a.account.name, values: a.balances }))} />`}>
         ${accounts.map((a) => html`<${AccountChart} key=${a.id} a=${a} year=${year} refMonth=${refMonth} />`)}
       </${ChartCard}>`}
 
@@ -187,6 +187,7 @@ export function Overview() {
  * after every transaction this year.
  */
 function AccountChart({ a, year, refMonth }) {
+  const { household } = useStore();
   const short = monthNames('short');
   const long = monthNames('long');
   const history = useData(`/api/accounts/${a.id}/history?year=${year}`); // empty unless from a bank
@@ -201,9 +202,9 @@ function AccountChart({ a, year, refMonth }) {
       <span class="num" style="font-weight:650">${money(value)}</span></div>
     <div class="small muted" style="margin:0 0 4px 18px">
       ${latest ? t('overview.accountToday', { date: shortDay(latest.date) })
-        : known ? t('overview.accountAt', { month: long[refMonth] }) : t('overview.accountUnknown')}
+        : known ? balanceLabel(household, long[refMonth]) : t('overview.accountUnknown')}
       ${!latest && mark(refMonth) && html` · <span class="badge accent">${mark(refMonth)}</span>`}</div>
-    ${known && html`<${LineChart} labels=${short} titles=${long.map((m) => t('overview.endOf', { month: m }))} markOf=${mark}
+    ${known && html`<${LineChart} labels=${short} titles=${long.map((m) => balanceLabel(household, m))} markOf=${mark}
       series=${[{ name: a.account.name, color, values: a.balances }]} height=${130} label=${a.account.name} />`}
     ${known && a.manual.some(Boolean) && html`<p class="small muted" style="margin:2px 0 0 18px">${t('overview.ringsHint')}</p>`}
     ${trail.length > 1 && html`<div style="margin-top:10px">

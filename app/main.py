@@ -395,6 +395,7 @@ def state(conn: sqlite3.Connection = Conn):
     accounts = rows(conn.execute("SELECT * FROM accounts ORDER BY sort, id"))
     for a in accounts:
         a["archived"] = bool(a["archived"])
+        a["in_overview"] = bool(a["in_overview"])
     return {
         "version": __version__,
         "setup_done": bool(members),
@@ -477,6 +478,9 @@ class SettingsIn(BaseModel):
     decimal_both: Literal["last", "invalid"] | None = None
     # Keep decimals, round them off, or accept whole numbers only.
     decimals: Literal["keep", "nearest", "up", "down", "only"] | None = None
+    # When a month's balance is read: its last day, or the day before its
+    # last weekday (before the salary comes in).
+    balance_day: Literal["last", "before_payday"] | None = None
     currency: str | None = Field(None, max_length=3)
 
 
@@ -496,8 +500,8 @@ def update_settings(body: SettingsIn, request: Request, conn: sqlite3.Connection
         body.household = name
     with db.transaction(conn):
         set_settings(conn, body.model_dump(exclude_none=True))
-        if body.decimals is not None:
-            banking.update_month_balances(conn)  # balances from the bank, rounded the new way
+        if body.decimals is not None or body.balance_day is not None:
+            banking.update_month_balances(conn)  # balances from the bank, rounded or read the new way
     return get_settings(conn)
 
 
@@ -597,35 +601,51 @@ def order_categories(body: OrderIn, conn: sqlite3.Connection = Conn):
 
 class AccountIn(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=60)
-    kind: Literal["main", "savings"] | None = None
+    # main: the one budget account everything flows in and out of; savings;
+    # expense: money moved there is spent from there.
+    kind: Literal["main", "savings", "expense"] | None = None
     color: int | None = Field(None, ge=0, le=7)
     archived: bool | None = None
+    in_overview: bool | None = None
 
 
-def _check_one_main(conn, kind: str | None, id: int | None = None) -> None:
+def _one_main(conn, kind: str | None, id: int | None = None) -> None:
+    """There is one budget account: making another one it turns the old one
+    into an expense account."""
     if kind == "main":
-        other = conn.execute("SELECT id FROM accounts WHERE kind = 'main' AND id IS NOT ?", (id,)).fetchone()
-        if other:
-            raise AppError(409, "ONE_MAIN_ACCOUNT", "there can only be one main account")
+        conn.execute("UPDATE accounts SET kind = 'expense', in_overview = 0 WHERE kind = 'main' AND id IS NOT ?", (id,))
+
+
+def _account_values(body: AccountIn) -> dict:
+    values = body.model_dump(exclude_none=True)
+    if body.kind == "expense" and body.in_overview is None:
+        values["in_overview"] = False  # expense accounts stay off the overview unless chosen
+    elif body.kind in ("main", "savings") and body.in_overview is None:
+        values["in_overview"] = True
+    return values
 
 
 @app.post("/api/accounts")
 def create_account(body: AccountIn, conn: sqlite3.Connection = Conn):
     if not body.name or not body.kind:
         raise AppError(422, "INVALID", "name and kind are required")
-    _check_one_main(conn, body.kind)
     count = conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
-    cur = conn.execute(
-        "INSERT INTO accounts (name, kind, color, sort) VALUES (?, ?, ?, ?)",
-        (body.name, body.kind, body.color if body.color is not None else count % 8, next_sort(conn, "accounts")),
-    )
+    values = _account_values(body)
+    with db.transaction(conn):
+        _one_main(conn, body.kind)
+        cur = conn.execute(
+            "INSERT INTO accounts (name, kind, color, sort, in_overview) VALUES (?, ?, ?, ?, ?)",
+            (body.name, body.kind, body.color if body.color is not None else count % 8, next_sort(conn, "accounts"),
+             int(values["in_overview"])),
+        )
     return one(conn, "SELECT * FROM accounts WHERE id = ?", (cur.lastrowid,))
 
 
 @app.patch("/api/accounts/{id}")
 def update_account(id: int, body: AccountIn, conn: sqlite3.Connection = Conn):
-    _check_one_main(conn, body.kind, id)
-    return _patch(conn, "accounts", id, body.model_dump(exclude_none=True))
+    with db.transaction(conn):
+        _one_main(conn, body.kind, id)
+        return _patch(conn, "accounts", id, _account_values(body))
 
 
 @app.delete("/api/accounts/{id}")

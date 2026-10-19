@@ -121,3 +121,24 @@ export function sortItems(items, by, { month, household } = {}) {
   else if (by === 'category') sorted.sort((a, b) => c.compare(cat(a), cat(b)) || byName(a, b));
   return sorted;
 }
+
+// ------------------------------------------------------------------ month-end balances
+
+/** The day a month's balance is read (see the server's measure_day), as "29. oktober". */
+export function measureDay(year, month, mode) {
+  const end = new Date(year, month, 0);
+  if (mode === 'before_payday') {
+    while (end.getDay() === 0 || end.getDay() === 6) end.setDate(end.getDate() - 1);
+    end.setDate(end.getDate() - 1);
+  }
+  return end;
+}
+
+export function measureDate(year, month, mode) {
+  return new Intl.DateTimeFormat(document.documentElement.lang || undefined, { day: 'numeric', month: 'long' }).format(measureDay(year, month, mode));
+}
+
+/** "End of October", or "Before payday, October": what a month's balance means. */
+export function balanceLabel(household, month) {
+  return t(household.settings.balance_day === 'before_payday' ? 'overview.beforePayday' : 'overview.endOf', { month });
+}

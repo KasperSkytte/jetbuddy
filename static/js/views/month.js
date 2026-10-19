@@ -4,7 +4,7 @@ import { useStore, useData, setStore } from '../store.js';
 import { t } from '../i18n.js';
 import { money, signedMoney, monthNames, amount } from '../fmt.js';
 import { AmountInput, Chips, Dot, Icon, Empty, seriesColor, useWide, KindSwitch, SortChoice, toast, toastError } from '../ui.js';
-import { members, itemsOf, monthTotals, categoryById, accountById, sortItems, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
+import { members, itemsOf, monthTotals, categoryById, accountById, sortItems, measureDate, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
 import { CopyYearBanner } from './plan.js';
 import { TransactionsSheet, reconcile } from './bank.js';
@@ -110,8 +110,8 @@ function Balances({ summary, month, year, household, bank, onSaved }) {
     .filter((a) => a.account && !a.account.archived);
   if (!accounts.length) return null;
   return html`<section class="card flush" style="margin-bottom:12px">
-    <div class="member-head"><${Icon} name="wallet" /><h2>${t('month.balances', { month: long[month - 1] })}</h2></div>
-    <p class="small secondary" style="margin:0;padding:0 16px 6px">${t('month.balancesHint')}</p>
+    <div class="member-head"><${Icon} name="wallet" /><h2>${t(household.settings.balance_day === 'before_payday' ? 'month.balancesBefore' : 'month.balances', { month: long[month - 1] })}</h2></div>
+    <p class="small secondary" style="margin:0;padding:0 16px 6px">${t('month.measuredOn', { date: measureDate(year, month, household.settings.balance_day) })} ${t('month.balancesHint')}</p>
     <div class="list">${accounts.map((a) => {
       const manual = a.manual[month - 1];
       const fromBank = a.source?.[month - 1] === 'bank';

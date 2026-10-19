@@ -4,7 +4,7 @@ import { useStore, setStore, reloadHousehold, applyTheme, bump, useData, applySe
 import { t, LANGUAGES } from '../i18n.js';
 import { money, monthNames, defaultDecimal } from '../fmt.js';
 import { Sheet, Swatches, Switch, Segmented, Dot, Icon, seriesColor, toast, toastError, errorText } from '../ui.js';
-import { categories } from '../model.js';
+import { categories, measureDate } from '../model.js';
 import { ImportSheet } from './import.js';
 import { BankSettings } from './bank.js';
 import { ExportSheet } from './export.js';
@@ -253,11 +253,18 @@ function Categories() {
   </${Section}>`;
 }
 
+const KIND_LABEL = { main: 'settings.mainAccount', savings: 'settings.savingsAccount', expense: 'settings.expenseAccount' };
+const KIND_HINT = { main: 'settings.mainHint', savings: 'settings.savingsHint', expense: 'settings.expenseHint' };
+
 function AccountSheet({ account, bankAccount, onClose }) {
   const isNew = !account;
   const { household } = useStore();
   const hasMain = household.accounts.some((a) => a.kind === 'main' && a.id !== account?.id);
-  const [form, setForm] = useState({ name: account?.name || '', kind: account?.kind || (hasMain ? 'savings' : 'main'), color: account?.color ?? household.accounts.length % 8, archived: account?.archived || false });
+  const mainAccount = household.accounts.find((a) => a.kind === 'main' && a.id !== account?.id);
+  const [form, setForm] = useState({
+    name: account?.name || '', kind: account?.kind || (hasMain ? 'expense' : 'main'), color: account?.color ?? household.accounts.length % 8,
+    archived: account?.archived || false, in_overview: account ? account.in_overview !== false : !hasMain,
+  });
   const [track, setTrack] = useState(bankAccount?.track ?? true);
   const balances = useData(account ? `/api/accounts/${account.id}/balances` : null);
   const long = monthNames('long');
@@ -286,10 +293,11 @@ function AccountSheet({ account, bankAccount, onClose }) {
       <label class="field"><span>${t('settings.name')}</span><input class="input" value=${form.name} onInput=${(e) => set({ name: e.target.value })} autofocus=${isNew} maxlength="60" />
         ${bankAccount && html`<span class="hint">${t('settings.bankNameHint', { name: bankAccount.name })}</span>`}</label>
       <div class="field"><span>${t('settings.accountType')}</span>
-        <${Segmented} value=${form.kind} onChange=${(kind) => set({ kind })}
-          options=${[{ value: 'main', label: t('settings.mainAccount') }, { value: 'savings', label: t('settings.savingsAccount') }]} />
-        <span class="hint">${form.kind === 'main' ? t('settings.mainHint') : t('settings.savingsHint')}</span>
-        ${form.kind === 'main' && hasMain && html`<span class="hint bad">${t('settings.oneMain')}</span>`}</div>
+        <${Segmented} value=${form.kind} onChange=${(kind) => set({ kind, in_overview: kind !== 'expense' })}
+          options=${['main', 'savings', 'expense'].map((k) => ({ value: k, label: t(KIND_LABEL[k]) }))} />
+        <span class="hint">${t(KIND_HINT[form.kind])}</span>
+        ${form.kind === 'main' && mainAccount && html`<span class="hint bad">${t('settings.oneMain', { name: mainAccount.name })}</span>`}</div>
+      <${Switch} checked=${form.in_overview} onChange=${(in_overview) => set({ in_overview })} label=${t('settings.inOverview')} hint=${t('settings.inOverviewHint')} />
       ${bankAccount && html`<${Switch} checked=${track} onChange=${setTrack} label=${t('bank.track')} hint=${t('bank.trackHint')} />`}
       <div class="field"><span>${t('common.color')}</span><${Swatches} value=${form.color} onChange=${(color) => set({ color })} /></div>
       ${!isNew && html`<${Switch} checked=${form.archived} onChange=${(archived) => set({ archived })} label=${t('settings.archived')} hint=${t('settings.accountArchivedHint')} />`}
@@ -311,11 +319,18 @@ function Accounts() {
   const bank = useData('/api/bank/status');
   const [editing, setEditing] = useState(null);
   const bankOf = (id) => (bank.data?.accounts || []).find((b) => b.account_id === id);
+  const now = new Date();
+  const saveDay = (balance_day) => run(async () => applySettings(await api.put('/api/settings', { balance_day })), () => { bump(); toast(t('common.saved')); });
   return html`<${Section} title=${t('settings.accounts')} icon="wallet">
     <p class="small secondary" style="margin:0;padding:0 16px 8px">${t('settings.accountsHint')}</p>
+    <label class="field" style="padding:4px 16px 12px"><span>${t('settings.balanceDay')}</span>
+      <select class="input" value=${household.settings.balance_day || 'last'} onChange=${(e) => saveDay(e.target.value)}>
+        <option value="last">${t('settings.balanceDay.last')}</option>
+        <option value="before_payday">${t('settings.balanceDay.before_payday')}</option></select>
+      <span class="hint">${t('settings.balanceDayHint.' + (household.settings.balance_day || 'last'), { date: measureDate(now.getFullYear(), now.getMonth() + 1, household.settings.balance_day) })}</span></label>
     <div class="list">${household.accounts.map((a) => {
       const b = bankOf(a.id);
-      const kind = a.kind === 'main' ? t('settings.mainAccount') : t('settings.savingsAccount');
+      const kind = t(KIND_LABEL[a.kind] || KIND_LABEL.savings);
       return html`<div class="list-row tap" key=${a.id} onClick=${() => setEditing({ account: a, bankAccount: b })}>
         <${Dot} color=${seriesColor(a.color)} size=${12} />
         <div class="main-col"><div class="name">${a.name}</div>
