@@ -470,3 +470,15 @@ def test_restore_converts_an_old_backup(client, household):
     kinds = {a["name"]: (a["kind"], a["in_overview"]) for a in client.get("/api/state").json()["accounts"]}
     first = old["accounts"][0]["name"]
     assert kinds[first] == ("main", True) and kinds["Second"] == ("expense", False)
+
+
+def test_delete_a_budget_year(client, household):
+    keep = add(client, household, "Alex", "income", "Salary", [31250] * 12)  # 2027
+    client.post("/api/years/2028/copy", json={"from_year": 2027})
+    only_2028 = client.post("/api/items", json={"member_id": member(household, "Alex")["id"], "kind": "expense",
+                                                 "name": "New car", "year": 2028, "amounts": [500] * 12}).json()
+    state = client.delete("/api/years/2028").json()
+    assert 2028 not in state["years"] and 2027 in state["years"]
+    assert client.get("/api/years/2028/items").json() == []
+    assert [i["id"] for i in client.get("/api/years/2027/items").json()] == [keep["id"]]
+    assert client.patch(f"/api/items/{only_2028['id']}?year=2028", json={"name": "x"}).status_code == 404

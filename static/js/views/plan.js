@@ -86,6 +86,18 @@ export function Plan() {
   const list = items.stale || !items.data ? null : itemsOf(items.data, memberId);
   const custom = (store.sortBy || 'custom') === 'custom'; // moving items only makes sense in your own order
 
+  const deleteYear = async () => {
+    if (!confirm(t('plan.deleteYearConfirm', { year }))) return;
+    try {
+      await api.del(`/api/years/${year}`);
+      await reloadHousehold();
+      bump();
+      toast(t('plan.yearDeleted', { year }));
+    } catch (e) {
+      toastError(e);
+    }
+  };
+
   const onMove = async (section, idx, dir) => {
     const j = idx + dir;
     if (j < 0 || j >= section.length) return;
@@ -126,6 +138,9 @@ export function Plan() {
         <${ListView} items=${list} household=${household} onOpen=${(item) => setEditing({ item })} sortBy=${store.sortBy}
           onAdd=${(kind) => setEditing({ member, kind })} reorder=${reorder && custom} onMove=${onMove}
           kinds=${wide ? ['income', 'expense'] : [store.kindTab || 'expense']} />`}
+    ${items.data?.length > 0 && !items.stale && html`<div class="danger-zone">
+      <button class="btn small ghost danger" onClick=${deleteYear}><${Icon} name="trash" size=${16} />${t('plan.deleteYear', { year })}</button>
+    </div>`}
     ${editing && html`<${ItemSheet} year=${year} item=${editing.item} member=${editing.member} kind=${editing.kind}
       onClose=${() => setEditing(null)} onChanged=${() => items.reload()} />`}
   </div>`;

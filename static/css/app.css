@@ -354,8 +354,11 @@ select.input { appearance: none; padding-right: 34px; background-image: linear-g
   color: var(--text-2); text-transform: capitalize; position: relative; min-height: 36px;
 }
 .month-scroller button.active { background: var(--text); color: var(--page); }
-.month-scroller button.now::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--accent); }
-.month-scroller button.active.now::after { background: var(--page); }
+.month-scroller button.now::before { content: ""; position: absolute; left: 50%; top: 3px; width: 12px; height: 2px; margin-left: -6px; border-radius: 1px; background: var(--accent); }
+.month-scroller button.active.now::before { background: var(--page); }
+/* Reconciled: a green dot under the month. */
+.month-scroller button.done::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: var(--good); }
+.month-scroller button.active.done::after { box-shadow: 0 0 0 1.5px var(--page); }
 @media (max-width: 420px) { .month-scroller button { font-size: 0; } .month-scroller button::first-letter { font-size: 12.5px; } }
 
 .sum-strip { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 14px; }
@@ -547,3 +550,4 @@ details.more summary { cursor: pointer; color: var(--accent-ink); font-weight: 5
 .nav a { min-width: 0; }
 .nav .nav-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 480px) { .nav { padding-left: 0; padding-right: 0; } .nav a { font-size: 10px; letter-spacing: -0.3px; border-radius: 10px; } .nav .icon-wrap { width: 42px; } }
+.danger-zone { display: flex; justify-content: center; margin: 24px 0 8px; }

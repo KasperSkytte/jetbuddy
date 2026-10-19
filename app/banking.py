@@ -645,6 +645,22 @@ def regroup_transactions(conn: sqlite3.Connection) -> None:
             conn.execute("INSERT OR IGNORE INTO item_years (item_id, year) VALUES (?, ?)", (r["item_id"], y))
 
 
+def reconciled_months(conn: sqlite3.Connection) -> list[str]:
+    """"year-month" of each budget month that is over and fully reconciled:
+    it has transactions on the budget account and every one is on an item
+    or ignored."""
+    mode = balance_day_mode(conn)
+    today = date.today()
+    return [
+        f"{r['year']}-{r['month']}"
+        for r in conn.execute(
+            "SELECT t.year, t.month, SUM(t.item_id IS NULL AND t.ignored = 0) AS open FROM bank_transactions t "
+            f"JOIN bank_accounts b ON b.id = t.bank_account_id WHERE {IN_BUDGET} GROUP BY t.year, t.month"
+        )
+        if not r["open"] and measure_day(r["year"], r["month"], mode) < today
+    ]
+
+
 def balance_day_mode(conn: sqlite3.Connection) -> str:
     r = conn.execute("SELECT value FROM settings WHERE key = 'balance_day'").fetchone()
     return "before_payday" if r and json.loads(r[0]) == "before_payday" else "last"

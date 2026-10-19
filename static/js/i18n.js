@@ -610,6 +610,10 @@ const en = {
   'reconcile.setBudget': 'Set {month}’s budget to {amount}',
   'reconcile.budgetSet': 'Budget set to {amount}',
   'reconcile.movedItem': '{name} now belongs to {member}',
+  'month.reconciledMark': 'reconciled',
+  'plan.deleteYear': 'Delete the {year} budget',
+  'plan.deleteYearConfirm': 'Delete the whole budget for {year}? Its amounts and typed-in balances are deleted, and items only used in {year} go too. Other years are not touched. The bank’s transactions stay, but are taken off the items. This can’t be undone – download a backup first if you’re unsure.',
+  'plan.yearDeleted': 'The {year} budget is deleted',
 };
 
 const da = {
@@ -1218,6 +1222,10 @@ const da = {
   'reconcile.setBudget': 'Sæt budgettet for {month} til {amount}',
   'reconcile.budgetSet': 'Budgettet er sat til {amount}',
   'reconcile.movedItem': '{name} hører nu til {member}',
+  'month.reconciledMark': 'afstemt',
+  'plan.deleteYear': 'Slet budgettet for {year}',
+  'plan.deleteYearConfirm': 'Slet hele budgettet for {year}? Årets beløb og indtastede saldi slettes, og poster, der kun bruges i {year}, forsvinder også. Andre år røres ikke. Bankens transaktioner bliver, men tages af posterne. Det kan ikke fortrydes – hent en backup først, hvis du er i tvivl.',
+  'plan.yearDeleted': 'Budgettet for {year} er slettet',
 };
 
 const DICTS = { en, da };

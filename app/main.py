@@ -870,6 +870,23 @@ def copy_year(year: int, body: CopyYearIn, conn: sqlite3.Connection = Conn):
     return {"copied": len(todo)}
 
 
+@app.delete("/api/years/{year}")
+def delete_year(year: int, conn: sqlite3.Connection = Conn):
+    """Delete a year's budget: its amounts, typed-in balances and import gaps.
+    Items only in that year go; items of other years stay. The bank's
+    transactions stay too, but are taken off the items, to be reconciled
+    again if the year is rebuilt."""
+    with db.transaction(conn):
+        conn.execute("UPDATE bank_transactions SET item_id = NULL WHERE year = ?", (year,))
+        for table in ("amounts", "item_years", "unreadable"):
+            conn.execute(f"DELETE FROM {table} WHERE year = ?", (year,))
+        conn.execute("DELETE FROM account_balances WHERE year = ? AND source = 'manual'", (year,))
+        conn.execute(
+            "DELETE FROM items WHERE id NOT IN (SELECT item_id FROM item_years) AND id NOT IN (SELECT item_id FROM amounts)"
+        )
+    return state(conn)
+
+
 # --------------------------------------------------------------------------
 # Statistics
 
@@ -1173,6 +1190,7 @@ def bank_status(request: Request, conn: sqlite3.Connection = Conn):
         "accounts": accounts,
         "rules": rules,
         "unsorted": {f"{r['year']}-{r['month']}": r["n"] for r in unsorted},
+        "reconciled": banking.reconciled_months(conn),
     }
 
 

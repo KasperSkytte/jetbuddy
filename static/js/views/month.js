@@ -9,7 +9,7 @@ import { ItemSheet } from './item-sheet.js';
 import { CopyYearBanner } from './plan.js';
 import { Reconcile, ItemBankSheet, itemStatus } from './reconcile.js';
 
-function MonthPicker({ month, year, onChange }) {
+function MonthPicker({ month, year, onChange, reconciled = [] }) {
   const long = monthNames('long');
   const short = monthNames('short');
   const now = new Date();
@@ -36,8 +36,11 @@ function MonthPicker({ month, year, onChange }) {
       <button class="btn ghost icon" onClick=${() => go(1)} aria-label=${t('month.next')}><${Icon} name="right" /></button>
     </div>
     <div class="month-scroller" role="tablist">
-      ${short.map((m, i) => html`<button key=${i} role="tab" aria-selected=${i + 1 === month} aria-label=${long[i]}
-        class=${(i + 1 === month ? 'active ' : '') + (year === now.getFullYear() && i === now.getMonth() ? 'now' : '')}
+      ${short.map((m, i) => html`<button key=${i} role="tab" aria-selected=${i + 1 === month}
+        aria-label=${reconciled.includes(`${year}-${i + 1}`) ? `${long[i]}, ${t('month.reconciledMark')}` : long[i]}
+        title=${reconciled.includes(`${year}-${i + 1}`) ? t('month.reconciledMark') : null}
+        class=${(i + 1 === month ? 'active ' : '') + (year === now.getFullYear() && i === now.getMonth() ? 'now ' : '')
+          + (reconciled.includes(`${year}-${i + 1}`) ? 'done' : '')}
         onClick=${() => onChange(i + 1, year)}>${m}</button>`)}
     </div>
   </div>`;
@@ -180,7 +183,7 @@ export function Month() {
   };
 
   return html`<div>
-    <${MonthPicker} month=${month} year=${year} onChange=${(m, y) => setStore({ month: m, year: y })} />
+    <${MonthPicker} month=${month} year=${year} onChange=${(m, y) => setStore({ month: m, year: y })} reconciled=${bank.data?.reconciled} />
     <div class="card" style=${{ margin: '10px 0 12px', display: reconciling ? 'none' : null }}>
       <div class="sum-strip">
         <div><div class="label"><${Dot} color=${INCOME_COLOR} size=${8} />${t('common.income')}</div><div class="value">${totals ? money(totals.income) : '–'}</div></div>

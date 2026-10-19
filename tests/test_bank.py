@@ -462,3 +462,15 @@ def test_moving_a_transaction_to_another_month(client, household, bank):
     client.put("/api/settings", json={"balance_day": "last"})
     client.put(f"/api/bank/transactions/{rent['id']}/month", json={})
     assert any(t["id"] == rent["id"] and not t["manual_month"] for t in rows(y, m))
+
+
+def test_reconciled_months(client, household, bank):
+    connect(client)
+    y, m = LAST_MONTH_END.year, LAST_MONTH_END.month
+    key = f"{y}-{m}"
+    assert key not in client.get("/api/bank/status").json()["reconciled"]
+    for tx in client.get("/api/bank/transactions", params={"year": y, "month": m}).json():
+        client.put(f"/api/bank/transactions/{tx['id']}", json={"ignored": True})
+    status = client.get("/api/bank/status").json()
+    assert key in status["reconciled"]
+    assert f"{TODAY.year}-{TODAY.month}" not in status["reconciled"]  # not over yet
