@@ -1,11 +1,12 @@
-// Bank sync: setting up Enable Banking, connecting banks, and sorting the
-// transactions that come in onto budget items.
+// Bank sync: setting up Enable Banking, connecting banks, and reconciling
+// the budget: putting the transactions that come in onto budget items and
+// seeing where the bank and the budget differ.
 import { html, useState, useEffect } from '../lib.js';
 import { api } from '../api.js';
 import { useStore, useData, bump, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
 import { money, amount, monthNames } from '../fmt.js';
-import { Sheet, Switch, Icon, Dot, Empty, seriesColor, toast, toastError, errorText } from '../ui.js';
+import { Sheet, Switch, Icon, Dot, Empty, Chips, seriesColor, toast, toastError, errorText } from '../ui.js';
 import { members, memberById, memberColor } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
 
@@ -335,7 +336,7 @@ export function BankSettings() {
       ${s.rules.length > 0 && html`<div>
         <div class="group-label">${t('bank.rules')}</div>
         <div class="list">${s.rules.map((r) => html`<div class="list-row" key=${r.id} style="min-height:48px">
-          <div class="main-col"><div class="name" style="font-weight:500">“${r.pattern}”</div>
+          <div class="main-col"><div class="name" style="font-weight:500">“${r.pattern}”${r.amount != null ? ' ' + t('bank.ruleAmountShort', { amount: amount(r.amount) }) : ''}</div>
             <div class="meta">→ ${r.ignore ? t('bank.ignored') : r.item_name}</div></div>
           <button class="btn ghost icon small" onClick=${() => removeRule(r.id)} aria-label=${t('common.delete')}><${Icon} name="trash" size=${17} /></button>
         </div>`)}</div>
@@ -355,6 +356,7 @@ function AssignView({ tx, items, year, onBack, onDone }) {
   const [query, setQuery] = useState('');
   const [rule, setRule] = useState(true);
   const [pattern, setPattern] = useState(tx.pattern);
+  const [sameAmount, setSameAmount] = useState(true);
   const [creating, setCreating] = useState(false);
   const matching = items.filter((i) => i.kind === kind);
   const shown = matching.filter((i) => i.name.toLowerCase().includes(query.trim().toLowerCase()));
@@ -362,7 +364,7 @@ function AssignView({ tx, items, year, onBack, onDone }) {
 
   const assign = async (body) => {
     try {
-      const r = await api.put(`/api/bank/transactions/${tx.id}`, { ...body, rule: rule && pattern.trim() ? pattern.trim() : null });
+      const r = await api.put(`/api/bank/transactions/${tx.id}`, { ...body, rule: rule && pattern.trim() ? pattern.trim() : null, rule_amount: sameAmount });
       toast(r.sorted > 1 ? t('bank.sortedMore', { n: r.sorted - 1 }) : t('bank.sorted'));
       onDone();
     } catch (e) {
@@ -390,7 +392,12 @@ function AssignView({ tx, items, year, onBack, onDone }) {
         <span class="text small">${t('bank.remember')}</span>
         <input type="checkbox" role="switch" checked=${rule} onChange=${(e) => setRule(e.target.checked)} />
       </label>
-      ${rule && html`<input class="input" value=${pattern} onInput=${(e) => setPattern(e.target.value)} aria-label=${t('bank.remember')} />`}
+      ${rule && html`<label class="field" style="margin-top:4px"><span>${t('bank.ruleText')}</span>
+        <input class="input" value=${pattern} onInput=${(e) => setPattern(e.target.value)} /></label>
+        <label class="row" style="cursor:pointer;min-height:40px;gap:10px"><input type="checkbox" checked=${sameAmount}
+          onChange=${(e) => setSameAmount(e.target.checked)} style="width:20px;height:20px" />
+          <span class="small">${t('bank.ruleAmount', { amount: amount(Math.abs(tx.amount)) })}</span></label>
+        <span class="small muted">${t('bank.ruleAmountHint')}</span>`}
     </div>
     ${suggestions.length > 0 && html`<div>
       <div class="group-label" style="padding-left:0">${t('bank.suggestions')}</div>
@@ -419,7 +426,7 @@ function TxRow({ tx, items, onOpen }) {
   return html`<button class="add-row tx-row" onClick=${() => onOpen(tx)}>
     <div class="spacer" style="min-width:0">
       <div class="ellipsis" style="color:var(--text);font-weight:560">${tx.counterparty || tx.text || '–'}</div>
-      <div class="small muted ellipsis" style="font-weight:400">${shortDate(tx.booking_date)}
+      <div class="small muted ellipsis" style="font-weight:400">${tx.via && html`<span class="via">${tx.via}</span> `}${shortDate(tx.booking_date)}
         ${item ? html` · <span style="color:var(--text-2)"><${Dot} color=${memberColor(household, item.member_id)} size=${7} /> ${item.name}</span>`
           : tx.ignored ? ' · ' + t('bank.ignored') : tx.counterparty && tx.text ? ' · ' + tx.text : ''}</div>
     </div>
@@ -427,29 +434,133 @@ function TxRow({ tx, items, onOpen }) {
   </button>`;
 }
 
-/** The month's bank transactions; unsorted first. */
+/**
+ * Where the bank and the budget differ this month: items the bank paid more
+ * or less on than budgeted (largest difference first), and those that match.
+ */
+export function reconcile(items, month) {
+  const differ = [];
+  const match = [];
+  for (const item of items) {
+    const actual = item.actual?.[month - 1];
+    if (actual == null) continue;
+    const planned = item.amounts[month - 1] ?? 0;
+    const row = { item, planned, actual, diff: actual - planned };
+    (Math.abs(row.diff) < 1 ? match : differ).push(row);
+  }
+  differ.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+  return { differ, match };
+}
+
+/** Transactions by account, under a small heading when there is more than one. */
+function ByAccount({ txs, items, onOpen }) {
+  const groups = [];
+  for (const tx of txs) {
+    let g = groups.find((x) => x.id === tx.bank_account_id);
+    if (!g) groups.push((g = { id: tx.bank_account_id, name: tx.account_name, txs: [] }));
+    g.txs.push(tx);
+  }
+  return groups.map((g) => html`<div key=${g.id}>
+    ${groups.length > 1 && html`<div class="tx-account">${g.name}</div>`}
+    <div class="list" style="margin:0 -18px">${g.txs.map((x) => html`<${TxRow} key=${x.id} tx=${x} items=${items} onOpen=${onOpen} />`)}</div>
+  </div>`);
+}
+
+function DiffRow({ row, month, year, txs, onOpen, onChanged }) {
+  const { household } = useStore();
+  const [open, setOpen] = useState(false);
+  const { item, planned, actual, diff } = row;
+  // Paying more for an expense, or getting less income, is the bad direction.
+  const bad = item.kind === 'expense' ? diff > 0 : diff < 0;
+  const mine = txs.filter((x) => x.item_id === item.id);
+  const settle = async () => {
+    try {
+      await api.put(`/api/items/${item.id}/amount`, { year, month, amount: actual });
+      toast(t('bank.reconciled'));
+      onChanged();
+    } catch (e) {
+      toastError(e);
+    }
+  };
+  return html`<div class="diff-row">
+    <div class="row" style="gap:10px">
+      <${Dot} color=${memberColor(household, item.member_id)} />
+      <div class="spacer" style="min-width:0">
+        <div class="ellipsis" style="font-weight:600">${item.name}<span class="small muted" style="font-weight:400"> · ${memberById(household, item.member_id)?.name}</span></div>
+        <div class="small secondary">${t('bank.budgetVsBank', { planned: amount(planned), actual: amount(actual) })}</div>
+      </div>
+      ${diff !== 0 && html`<span class=${'diff-tag num ' + (bad ? 'bad' : 'good')}>${t(diff > 0 ? 'bank.more' : 'bank.less', { diff: amount(Math.abs(diff)) })}</span>`}
+    </div>
+    <div class="row wrap" style="margin-top:8px;gap:8px">
+      ${diff !== 0 && html`<button class="btn small primary" onClick=${settle} title=${t('month.useBankHint')}>${t('month.useBank')}</button>`}
+      ${mine.length > 0 && html`<button class="btn small ghost" onClick=${() => setOpen(!open)}>
+        <${Icon} name=${open ? 'up' : 'down'} size=${16} />${t('bank.showTx', { n: mine.length })}</button>`}
+    </div>
+    ${open && html`<div class="list" style="margin:8px -18px 0">${mine.map((x) => html`<${TxRow} key=${x.id} tx=${x} items=${[item]} onOpen=${onOpen} />`)}</div>`}
+  </div>`;
+}
+
+/**
+ * Reconciling a month: the bank's transactions that aren't on the budget
+ * yet, by account, then the items where the bank and the budget differ.
+ */
 export function TransactionsSheet({ year, month, items, onClose, onChanged }) {
   const txs = useData(`/api/bank/transactions?year=${year}&month=${month}`);
   const [open, setOpen] = useState(null);
+  const [account, setAccount] = useState('all');
+  const [via, setVia] = useState('all');
   const [showSorted, setShowSorted] = useState(false);
+  const [showMatch, setShowMatch] = useState(false);
   const long = monthNames('long');
-  const list = txs.data || [];
+  const all = txs.data || [];
+  const accounts = [...new Map(all.map((x) => [x.bank_account_id, x.account_name])).entries()];
+  const types = [...new Set(all.map((x) => x.via || '').filter(Boolean))].sort();
+  const list = all.filter((x) => (account === 'all' || x.bank_account_id === account) && (via === 'all' || (x.via || '') === via));
+  const filtered = account !== 'all' || via !== 'all';
   const unsorted = list.filter((x) => !x.item_id && !x.ignored);
   const sorted = list.filter((x) => x.item_id || x.ignored);
+  const { differ, match } = reconcile(items, month);
   const done = () => {
     setOpen(null);
     txs.reload();
     onChanged();
   };
-  return html`<${Sheet} title=${t('bank.monthTitle', { month: long[month - 1] })} onClose=${onClose}>
+  const changed = () => {
+    txs.reload();
+    onChanged();
+  };
+  const unsortedIn = (id) => all.filter((x) => x.bank_account_id === id && !x.item_id && !x.ignored).length;
+  return html`<${Sheet} wide title=${t('bank.monthTitle', { month: long[month - 1] })} onClose=${onClose}>
     ${open ? html`<${AssignView} tx=${open} items=${items} year=${year} onBack=${() => setOpen(null)} onDone=${done} />` : html`
-      ${!txs.data ? html`<p class="muted">${t('common.loading')}</p>` : list.length === 0 ? html`<${Empty} title=${t('bank.noTransactions')} />` : html`
-        <div class="group-label" style="padding-left:0">${t('bank.unsorted', { n: unsorted.length })}</div>
-        ${unsorted.length === 0 && html`<p class="small secondary" style="margin:0 0 8px">${t('bank.allSorted')}</p>`}
-        <div class="list" style="margin:0 -18px">${unsorted.map((x) => html`<${TxRow} key=${x.id} tx=${x} items=${items} onOpen=${setOpen} />`)}</div>
-        ${sorted.length > 0 && html`<button class="add-row" style="margin:8px -18px 0;width:calc(100% + 36px);color:var(--text-2)" onClick=${() => setShowSorted(!showSorted)}>
-          <${Icon} name=${showSorted ? 'up' : 'down'} size=${18} />${t('bank.sortedCount', { n: sorted.length })}</button>`}
-        ${showSorted && html`<div class="list" style="margin:0 -18px">${sorted.map((x) => html`<${TxRow} key=${x.id} tx=${x} items=${items} onOpen=${setOpen} />`)}</div>`}
-      `}`}
+      ${!txs.data ? html`<p class="muted">${t('common.loading')}</p>` : all.length === 0 ? html`<${Empty} title=${t('bank.noTransactions')} />` : html`<div class="stack">
+        ${accounts.length > 1 && html`<${Chips} label=${t('bank.account')} value=${account} onChange=${setAccount}
+          options=${[{ value: 'all', label: t('bank.allAccounts') }, ...accounts.map(([id, name]) => ({ value: id, label: unsortedIn(id) ? `${name} (${unsortedIn(id)})` : name }))]} />`}
+        ${types.length > 0 && html`<${Chips} label=${t('bank.via')} value=${via} onChange=${setVia}
+          options=${[{ value: 'all', label: t('bank.allTypes') }, ...types.map((v) => ({ value: v, label: v }))]} />`}
+        <section>
+          <div class="group-label" style="padding-left:0">${t('bank.unsorted', { n: unsorted.length })}</div>
+          ${unsorted.length === 0 ? html`<p class="small secondary" style="margin:0">${t('bank.allSorted')}</p>`
+            : html`<p class="small secondary" style="margin:0 0 6px">${t('bank.unsortedHint')}</p>
+              <${ByAccount} txs=${unsorted} items=${items} onOpen=${setOpen} />`}
+        </section>
+        ${!filtered && html`<section>
+          <div class="group-label" style="padding-left:0">${t('bank.deviations', { n: differ.length })}</div>
+          ${differ.length === 0 ? html`<p class="small secondary" style="margin:0">${t('bank.noDeviations')}</p>`
+            : html`<p class="small secondary" style="margin:0 0 6px">${t('bank.deviationsHint')}</p>
+              <div class="list" style="margin:0 -18px">${differ.map((row) => html`<${DiffRow} key=${row.item.id} row=${row} month=${month} year=${year}
+                txs=${all} onOpen=${setOpen} onChanged=${changed} />`)}</div>`}
+        </section>`}
+        ${!filtered && match.length > 0 && html`<div>
+          <button class="add-row" style="margin:0 -18px;width:calc(100% + 36px);color:var(--text-2)" onClick=${() => setShowMatch(!showMatch)}>
+            <${Icon} name=${showMatch ? 'up' : 'down'} size=${18} />${t('bank.matching', { n: match.length })}</button>
+          ${showMatch && html`<div class="list" style="margin:0 -18px">${match.map((row) => html`<${DiffRow} key=${row.item.id} row=${row} month=${month} year=${year}
+            txs=${all} onOpen=${setOpen} onChanged=${changed} />`)}</div>`}
+        </div>`}
+        ${sorted.length > 0 && html`<div>
+          <button class="add-row" style="margin:0 -18px;width:calc(100% + 36px);color:var(--text-2)" onClick=${() => setShowSorted(!showSorted)}>
+            <${Icon} name=${showSorted ? 'up' : 'down'} size=${18} />${t('bank.sortedCount', { n: sorted.length })}</button>
+          ${showSorted && html`<${ByAccount} txs=${sorted} items=${items} onOpen=${setOpen} />`}
+        </div>`}
+      </div>`}`}
   </${Sheet}>`;
 }

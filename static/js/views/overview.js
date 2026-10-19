@@ -2,7 +2,7 @@ import { html } from '../lib.js';
 import { useStore, useData, setStore } from '../store.js';
 import { t } from '../i18n.js';
 import { money, signedMoney, percent, monthNames, sum } from '../fmt.js';
-import { ColumnChart, LineChart, BarList, ChartCard, ChartTable, Legend } from '../charts.js';
+import { ColumnChart, LineChart, BarList, ChartCard, ChartTable, Legend, TrailChart } from '../charts.js';
 import { Dot, Empty, Icon, seriesColor } from '../ui.js';
 import { members, memberById, memberColor, categoryById, accountById, INCOME_COLOR, EXPENSE_COLOR, referenceMonth, monthTotals } from '../model.js';
 import { CopyYearBanner } from './plan.js';
@@ -68,6 +68,7 @@ export function Overview() {
       return d && { m, income: sum(d.income), expense: sum(d.expense) };
     })
     .filter((r) => r && (r.income || r.expense));
+  const maxExpense = Math.max(1, ...memberRows.map((r) => r.expense));
 
   // Categories: largest first, the tail folded into "Other".
   const cats = s.categories
@@ -134,30 +135,19 @@ export function Overview() {
       </${ChartCard}>
 
       ${accounts.length > 0 && html`<${ChartCard} title=${t('overview.accounts')}
-        table=${html`<${ChartTable} labels=${long} total=${false} series=${accounts.map((a) => ({ name: a.account.name, values: a.balances }))} />`}>
-        ${accounts.map((a) => {
-          const value = a.balances[refMonth];
-          const known = a.balances.some((v) => v != null);
-          return html`<div key=${a.id} style="margin-bottom:10px">
-            <div class="row"><${Dot} color=${seriesColor(a.account.color)} /><strong class="spacer ellipsis">${a.account.name}</strong>
-              <span class="num" style="font-weight:650">${money(value)}</span></div>
-            <div class="small muted" style="margin:0 0 4px 18px">
-              ${known ? t('overview.accountAt', { month: long[refMonth] }) : t('overview.accountUnknown')}
-              ${a.manual[refMonth] && html` · <span class="badge accent">${a.source?.[refMonth] === 'bank' ? t('month.fromBank') : t('month.actual')}</span>`}</div>
-            ${known && html`<${LineChart} labels=${short} titles=${long} series=${[{ name: a.account.name, color: seriesColor(a.account.color), values: a.balances }]} height=${130} label=${a.account.name} />`}
-          </div>`;
-        })}
+        table=${html`<${ChartTable} labels=${long.map((m) => t('overview.endOf', { month: m }))} total=${false} series=${accounts.map((a) => ({ name: a.account.name, values: a.balances }))} />`}>
+        ${accounts.map((a) => html`<${AccountChart} key=${a.id} a=${a} year=${year} refMonth=${refMonth} />`)}
       </${ChartCard}>`}
 
       ${memberRows.length > 0 && html`<section class="card">
         <div class="card-head"><h2>${t('overview.byPerson')}</h2></div>
-        <div class="list" style="margin:0 -16px">${memberRows.map((r) => html`<div class="list-row" key=${r.m.id}>
+        <div class="list" style="margin:0 -16px">${memberRows.map((r) => html`<div class="list-row person-row" key=${r.m.id}>
           <${Dot} color=${seriesColor(r.m.color)} />
           <div class="main-col"><div class="name">${r.m.name}</div>
-            <div class="meta">${r.income ? `${t('common.income')} ${money(r.income)} · ` : ''}${t('common.expenses')} ${money(r.expense)}</div></div>
+            <div class="meta">${r.income ? `${t('common.income')} ${money(r.income)} · ` : ''}${t('common.expenses')} ${money(r.expense)}${expense ? ` (${percent(r.expense / expense)})` : ''}</div>
+            ${r.expense > 0 && html`<div class="track" title=${t('overview.shareOfExpenses')}><div class="fill" style=${{ width: (r.expense / maxExpense) * 100 + '%', '--fill': seriesColor(r.m.color) }}></div></div>`}</div>
           <div class=${'amount ' + netClass(r.income - r.expense)}>${signedMoney(r.income - r.expense)}</div>
         </div>`)}</div>
-        <div style="margin-top:16px"><${BarList} rows=${memberRows.filter((r) => r.expense).sort((a, b) => b.expense - a.expense).map((r) => ({ key: r.m.id, label: r.m.name, color: seriesColor(r.m.color), value: r.expense, sub: percent(r.expense / expense) }))} /></div>
         <p class="small muted" style="margin:10px 0 0">${t('overview.byPersonHint')}</p>
       </section>`}
 
@@ -189,4 +179,39 @@ export function Overview() {
     </div>
     ${exporting && html`<${ExportSheet} onClose=${() => setExporting(false)} />`}
   </div>`;
+}
+
+/**
+ * One account: its balance at the end of each month (real figures, typed in
+ * or from the bank, drawn as rings) and, for a bank account, the balance
+ * after every transaction this year.
+ */
+function AccountChart({ a, year, refMonth }) {
+  const short = monthNames('short');
+  const long = monthNames('long');
+  const history = useData(`/api/accounts/${a.id}/history?year=${year}`); // empty unless from a bank
+  const trail = history.data || [];
+  const latest = trail.length ? trail[trail.length - 1] : null;
+  const value = latest ? latest.balance : a.balances[refMonth];
+  const known = a.balances.some((v) => v != null);
+  const color = seriesColor(a.account.color);
+  const mark = (i) => (a.manual[i] ? (a.source?.[i] === 'bank' ? t('month.fromBank') : t('month.actual')) : null);
+  return html`<div style="margin-bottom:14px">
+    <div class="row"><${Dot} color=${color} /><strong class="spacer ellipsis">${a.account.name}</strong>
+      <span class="num" style="font-weight:650">${money(value)}</span></div>
+    <div class="small muted" style="margin:0 0 4px 18px">
+      ${latest ? t('overview.accountToday', { date: shortDay(latest.date) })
+        : known ? t('overview.accountAt', { month: long[refMonth] }) : t('overview.accountUnknown')}
+      ${!latest && mark(refMonth) && html` · <span class="badge accent">${mark(refMonth)}</span>`}</div>
+    ${known && html`<${LineChart} labels=${short} titles=${long.map((m) => t('overview.endOf', { month: m }))} markOf=${mark}
+      series=${[{ name: a.account.name, color, values: a.balances }]} height=${130} label=${a.account.name} />`}
+    ${known && a.manual.some(Boolean) && html`<p class="small muted" style="margin:2px 0 0 18px">${t('overview.ringsHint')}</p>`}
+    ${trail.length > 1 && html`<div style="margin-top:10px">
+      <div class="small secondary" style="margin:0 0 2px 18px">${t('overview.everyTransaction')}</div>
+      <${TrailChart} points=${trail} color=${color} label=${t('overview.everyTransaction')} /></div>`}
+  </div>`;
+}
+
+function shortDay(iso) {
+  return new Intl.DateTimeFormat(document.documentElement.lang || undefined, { day: 'numeric', month: 'long' }).format(new Date(iso + 'T12:00:00'));
 }

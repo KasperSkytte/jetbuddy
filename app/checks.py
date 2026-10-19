@@ -170,14 +170,19 @@ def find(conn: sqlite3.Connection, dismissed: set[str] = frozenset()) -> dict:
                         options=_scale_option(where, 100) + _scale_option(where, 1000),
                     ))
 
-    # 4. A typed-in account balance far from what the budget expects.
+    # 4. A typed-in balance of the budget account far from what the budget
+    #    expects. Other accounts are left out: money moved to them from the
+    #    budget account is meant to be spent, so their balance drifting from
+    #    the plan is no sign of a typing error.
     if years:
-        net, linked = calc._flows(conn)
+        net, _ = calc._flows(conn)
         series = calc.account_balances(conn, max(years) + 1)
         kinds = {r["id"]: r["kind"] for r in conn.execute("SELECT id, kind FROM accounts")}
         names = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM accounts")}
         for acc_id, months in series.items():
-            flow = net if kinds.get(acc_id) == "main" else linked.get(acc_id, {})
+            if kinds.get(acc_id) != "main":
+                continue
+            flow = net
             keys = sorted(months)
             for prev, key in zip(keys, keys[1:]):
                 cents, source = months[key]

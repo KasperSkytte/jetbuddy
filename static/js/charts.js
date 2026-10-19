@@ -155,7 +155,12 @@ export function ColumnChart({ labels, titles, series, height = 220, format = mon
 }
 
 /** Lines. series: [{ name, color, values[] }]; null values break the line. */
-export function LineChart({ labels, titles, series, height = 200, format = money, tickFormat = moneyShort, label, area = false, zero = false }) {
+/**
+ * Lines over the months. markOf(i), for a single series, names a point that
+ * is a real figure rather than a computed one ("Entered"): drawn as a ring
+ * and named in the tooltip.
+ */
+export function LineChart({ labels, titles, series, height = 200, format = money, tickFormat = moneyShort, label, area = false, zero = false, markOf }) {
   const [ref, width] = useWidth();
   const n = labels.length;
   let [min, max] = extent(series);
@@ -218,12 +223,14 @@ export function LineChart({ labels, titles, series, height = 200, format = money
       ${series.map((s, j) => html`<g key=${'s' + j}>
         ${area && paths[j].areaD && html`<path d=${paths[j].areaD} fill=${s.color} opacity="0.1" />`}
         <path d=${paths[j].d} fill="none" stroke=${s.color} stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        ${markOf && j === 0 && s.values.map((v, i) => v != null && markOf(i) && html`<circle key=${'k' + i} cx=${x(i)} cy=${y(v)} r="4" fill="var(--surface)" stroke=${s.color} stroke-width="2" />`)}
         ${paths[j].lastIndex >= 0 && active == null && html`<circle cx=${x(paths[j].lastIndex)} cy=${y(s.values[paths[j].lastIndex])} r="4" fill=${s.color} stroke="var(--surface)" stroke-width="2" />`}
         ${active != null && s.values[active] != null && html`<circle cx=${x(active)} cy=${y(s.values[active])} r="4.5" fill=${s.color} stroke="var(--surface)" stroke-width="2" />`}
       </g>`)}
     </svg>`}
     ${active != null && html`<${Tooltip} title=${(titles || labels)[active]} x=${x(active)} width=${width} format=${format}
-      rows=${series.map((s) => ({ name: s.name, color: s.color, value: s.values[active] }))} />`}
+      rows=${series.map((s) => ({ name: s.name, color: s.color, value: s.values[active] }))}
+      extra=${markOf && markOf(active) && html`<div class="t-row"><span class="t-key"></span><span class="badge accent">${markOf(active)}</span></div>`} />`}
   </div>`;
 }
 
@@ -260,4 +267,69 @@ export function ChartCard({ title, children, table, actions, className = '' }) {
     </div>
     ${asTable ? table : children}
   </section>`;
+}
+
+/**
+ * An account's balance after every transaction, on a time axis: a step line
+ * (the balance holds until the next transaction). points: [{ date, balance,
+ * amount, text }], oldest first. Hover or tap shows the transaction.
+ */
+export function TrailChart({ points, color, height = 170, label, format = money, tickFormat = moneyShort }) {
+  const [ref, width] = useWidth();
+  const n = points.length;
+  const time = (p) => new Date(p.date + 'T12:00:00').getTime();
+  const t0 = n ? time(points[0]) : 0;
+  const t1 = n ? Math.max(time(points[n - 1]), t0 + 86400000) : 1;
+  const vals = points.map((p) => p.balance);
+  let min = Math.min(...vals);
+  let max = Math.max(...vals);
+  const pad = (max - min) * 0.1 || Math.abs(max) * 0.1 || 1;
+  const ticks = niceTicks(min - pad, max + pad, height < 160 ? 3 : 4);
+  const lo = ticks[0];
+  const hi = ticks[ticks.length - 1];
+  const tickLabels = ticks.map(tickFormat);
+  const left = Math.max(...tickLabels.map((s) => s.length)) * 6.4 + 8;
+  const top = 10;
+  const bottom = 22;
+  const right = 8;
+  const plotW = Math.max(0, width - left - right);
+  const plotH = height - top - bottom;
+  const x = (p) => left + ((time(p) - t0) / (t1 - t0)) * plotW;
+  const y = (v) => top + plotH - ((v - lo) / (hi - lo || 1)) * plotH;
+  const xToIndex = (px) => {
+    let best = 0;
+    for (let i = 0; i < n; i++) if (Math.abs(x(points[i]) - px) <= Math.abs(x(points[best]) - px)) best = i;
+    return best;
+  };
+  const [active, handlers] = useActive(n, xToIndex);
+  let d = '';
+  points.forEach((p, i) => {
+    d += i === 0 ? `M${x(p).toFixed(1)},${y(p.balance).toFixed(1)}` : `H${x(p).toFixed(1)}V${y(p.balance).toFixed(1)}`;
+  });
+  // Month starts along the bottom.
+  const months = [];
+  if (n) {
+    const start = new Date(t0);
+    for (let m = new Date(start.getFullYear(), start.getMonth() + 1, 1); m.getTime() <= t1; m = new Date(m.getFullYear(), m.getMonth() + 1, 1)) months.push(m);
+  }
+  const monthLabel = new Intl.DateTimeFormat(document.documentElement.lang || undefined, { month: 'short' });
+  const dayLabel = new Intl.DateTimeFormat(document.documentElement.lang || undefined, { day: 'numeric', month: 'long' });
+  const a = active != null ? points[active] : null;
+  return html`<div class="chart" ref=${ref} tabindex="0" role="img" aria-label=${label} ...${handlers}>
+    ${width > 0 && n > 0 && html`<svg width=${width} height=${height}>
+      ${ticks.map((v, i) => html`<g key=${'t' + i}>
+        <line class=${v === 0 ? 'baseline' : 'gridline'} x1=${left} x2=${width - right} y1=${Math.round(y(v)) + 0.5} y2=${Math.round(y(v)) + 0.5} />
+        <text class="tick" x=${left - 8} y=${y(v) + 4} text-anchor="end">${tickLabels[i]}</text></g>`)}
+      ${months.map((m, i) => {
+        const px = left + ((m.getTime() - t0) / (t1 - t0)) * plotW;
+        return html`<text key=${'m' + i} class="tick" x=${px} y=${height - 6} text-anchor="middle" style="text-transform:capitalize">${months.length > 8 ? monthLabel.format(m).slice(0, 1) : monthLabel.format(m).replace('.', '')}</text>`;
+      })}
+      ${a && html`<line class="crosshair" x1=${x(a)} x2=${x(a)} y1=${top} y2=${top + plotH} />`}
+      <path d=${d} fill="none" stroke=${color} stroke-width="2" stroke-linejoin="round" />
+      <circle cx=${x(a || points[n - 1])} cy=${y((a || points[n - 1]).balance)} r="4.5" fill=${color} stroke="var(--surface)" stroke-width="2" />
+    </svg>`}
+    ${a && html`<${Tooltip} title=${dayLabel.format(new Date(a.date + 'T12:00:00'))} x=${x(a)} width=${width} format=${format}
+      rows=${[{ name: t('chart.balance'), color, value: a.balance }]}
+      extra=${a.amount != null && html`<div class="t-row"><span class="t-key"></span><span class="t-value">${a.amount > 0 ? '+' : ''}${format(a.amount)}</span><span class="t-name">${a.text || ''}</span></div>`} />`}
+  </div>`;
 }

@@ -521,3 +521,14 @@ details.more summary { cursor: pointer; color: var(--accent-ink); font-weight: 5
 .list-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .sort-choice { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text-2); font-weight: 560; }
 .sort-choice select.input { width: auto; min-height: 36px; padding: 4px 34px 4px 12px; font-size: 14.5px; border-radius: 999px; }
+.tx-account { font-size: 12.5px; font-weight: 650; color: var(--text-2); padding: 10px 0 4px; text-transform: uppercase; letter-spacing: .04em; }
+.diff-row { padding: 12px 18px; border-bottom: 1px solid var(--border); }
+.diff-row:last-child { border-bottom: 0; }
+.diff-tag { font-size: 13px; font-weight: 650; padding: 3px 8px; border-radius: 999px; background: var(--surface-2); white-space: nowrap; }
+.person-row .track { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; margin-top: 6px; }
+.person-row .fill { height: 100%; border-radius: 4px; background: var(--fill, var(--accent)); min-width: 2px; }
+.via { font-size: 11px; font-weight: 650; padding: 1px 6px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); white-space: nowrap; }
+.proposal { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; color: var(--text-2); }
+.proposal .btn { min-height: 28px; padding: 2px 10px; }
+.proposal > .spacer { min-width: 0; overflow-wrap: anywhere; line-height: 1.35; }
+.proposal > svg { flex: none; }

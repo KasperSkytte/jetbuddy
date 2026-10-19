@@ -666,6 +666,12 @@ def set_balance(id: int, body: BalanceIn, conn: sqlite3.Connection = Conn):
     return {"ok": True}
 
 
+@app.get("/api/accounts/{id}/history")
+def account_history(id: int, year: int, conn: sqlite3.Connection = Conn):
+    """The balance after each bank transaction in year (for a bank-linked account)."""
+    return banking.balance_history(conn, id, year)
+
+
 @app.get("/api/accounts/{id}/balances")
 def list_balances(id: int, conn: sqlite3.Connection = Conn):
     return [
@@ -1125,6 +1131,7 @@ def bank_status(request: Request, conn: sqlite3.Connection = Conn):
     ))
     for r in rules:
         r["ignore"] = bool(r["ignore"])
+        r["amount"] = db.from_cents(r.pop("amount_cents"))
     unsorted = conn.execute(
         "SELECT t.year, t.month, COUNT(*) AS n FROM bank_transactions t JOIN bank_accounts b ON b.id = t.bank_account_id "
         "WHERE b.track = 1 AND t.item_id IS NULL AND t.ignored = 0 GROUP BY t.year, t.month"
@@ -1252,6 +1259,8 @@ class AssignIn(BaseModel):
     ignored: bool = False
     # Also sort future (and other unsorted) transactions containing this text the same way.
     rule: str | None = Field(None, max_length=200)
+    # ... but only those of the same amount as this one.
+    rule_amount: bool = False
 
 
 @app.put("/api/bank/transactions/{id}")
@@ -1264,8 +1273,8 @@ def bank_assign(id: int, body: AssignIn, conn: sqlite3.Connection = Conn):
         banking._assign(conn, id, body.item_id, body.ignored and body.item_id is None, tx["year"])
         if body.rule and body.rule.strip() and (body.item_id is not None or body.ignored):
             conn.execute(
-                "INSERT INTO bank_rules (pattern, item_id, ignore) VALUES (?, ?, ?)",
-                (body.rule.strip(), body.item_id, int(body.item_id is None)),
+                "INSERT INTO bank_rules (pattern, item_id, ignore, amount_cents) VALUES (?, ?, ?, ?)",
+                (body.rule.strip(), body.item_id, int(body.item_id is None), abs(tx["cents"]) if body.rule_amount else None),
             )
             sorted_count = banking.apply_rules(conn)
     return {"ok": True, "sorted": sorted_count}

@@ -503,7 +503,9 @@ def _assign(conn, tx_id: int, item_id: int | None, ignored: bool, year: int) -> 
 
 
 def apply_rules(conn: sqlite3.Connection, only_ids: list[int] | None = None) -> int:
-    """Sort unsorted transactions with the saved rules. Newer rules win."""
+    """Sort unsorted transactions with the saved rules. Newer rules win. A
+    rule with an amount only takes transactions of exactly that amount, so a
+    payment that changed is left unsorted for someone to look at."""
     rules = conn.execute("SELECT * FROM bank_rules ORDER BY id DESC").fetchall()
     if not rules:
         return 0
@@ -518,6 +520,8 @@ def apply_rules(conn: sqlite3.Connection, only_ids: list[int] | None = None) -> 
     for tx in conn.execute(sql, args).fetchall():
         haystack = f"{tx['counterparty']} {tx['text']}".lower()
         for rule in rules:
+            if rule["amount_cents"] is not None and abs(tx["cents"]) != rule["amount_cents"]:
+                continue
             if rule["pattern"].lower() in haystack:
                 _assign(conn, tx["id"], rule["item_id"], bool(rule["ignore"]), tx["year"])
                 sorted_count += 1
@@ -533,11 +537,34 @@ _CHANGING = {
 }
 
 
+# How a payment was made, from the short code banks put in front of the text:
+# "MCD NETFLIX.COM" is a Mastercard payment, "BS Ørsted" Betalingsservice.
+PAYMENT_TYPES = [
+    (r"(MCD|MC|MASTERCARD)", "Mastercard"),
+    (r"(VISA/DANKORT|VISA|VDK)", "Visa"),
+    (r"(DANKORT-NOTA|DK-NOTA|DANKORT)", "Dankort"),
+    (r"(BS|BETALINGSSERVICE)", "Betalingsservice"),
+    (r"(LS|LEVERANDØRSERVICE)", "Leverandørservice"),
+    (r"(MOBILEPAY|MOBILE PAY)", "MobilePay"),
+]
+_TYPE_RE = [(re.compile(rf"^\s*{code}(?=[\s:.\-/]|$)[\s:.\-/]*", re.I), name) for code, name in PAYMENT_TYPES]
+
+
+def payment_type(text: str) -> tuple[str | None, str]:
+    """(how it was paid, the text without that code), or (None, text)."""
+    for pattern, name in _TYPE_RE:
+        m = pattern.match(text or "")
+        if m and m.end() < len(text):
+            return name, text[m.end():].strip()
+    return None, text or ""
+
+
 def suggest_pattern(counterparty: str, text: str) -> str:
     """What a rule should look for: the counterparty, or the first words of
-    the text without dates, numbers and month names."""
+    the text without the payment-type code, dates, numbers and month names."""
     if counterparty:
-        return counterparty
+        return payment_type(counterparty)[1]
+    text = payment_type(text)[1]
     words = [
         w for w in text.split()
         if not any(ch.isdigit() for ch in w) and w.lower().strip(".,:") not in _CHANGING
@@ -791,4 +818,40 @@ def month_transactions(conn: sqlite3.Connection, year: int, month: int) -> list[
         tx["amount"] = db.from_cents(tx.pop("cents"))
         tx["ignored"] = bool(tx["ignored"])
         tx["pattern"] = suggest_pattern(tx["counterparty"], tx["text"])
+        tx["via"] = payment_type(tx["text"])[0] or payment_type(tx["counterparty"])[0]
     return rows
+
+
+def balance_history(conn: sqlite3.Connection, account_id: int, year: int) -> list[dict]:
+    """The balance of a Jetbuddy account after every bank transaction in year,
+    oldest first, worked back from the bank's latest balance. Empty when no
+    bank account with a balance is linked."""
+    linked = conn.execute(
+        "SELECT id, balance_cents, balance_date FROM bank_accounts WHERE account_id = ? AND balance_cents IS NOT NULL",
+        (account_id,),
+    ).fetchall()
+    if not linked:
+        return []
+    mode = bank_mode(conn)
+    ids = [b["id"] for b in linked]
+    rows = conn.execute(
+        f"SELECT booking_date, cents, counterparty, text FROM bank_transactions WHERE bank_account_id IN ({','.join('?' * len(ids))}) "
+        "ORDER BY booking_date DESC, id DESC",
+        ids,
+    ).fetchall()
+    balance = sum(b["balance_cents"] for b in linked)
+    ref = max(b["balance_date"] or date.today().isoformat() for b in linked)
+    points = [{"date": ref, "balance": balance, "amount": None, "text": None}]
+    for r in rows:
+        if r["booking_date"] > ref:
+            continue
+        points.append({"date": r["booking_date"], "balance": balance, "amount": r["cents"],
+                       "text": payment_type(r["counterparty"] or r["text"])[1] or r["text"]})
+        balance -= r["cents"]
+        if r["booking_date"] < f"{year}-01-01":
+            break
+    points = [p for p in reversed(points) if p["date"].startswith(str(year))]
+    for p in points:
+        p["balance"] = db.from_cents(db.round_cents(p["balance"], mode))
+        p["amount"] = None if p["amount"] is None else db.from_cents(db.round_cents(p["amount"], mode))
+    return points

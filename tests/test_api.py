@@ -405,3 +405,14 @@ def test_import_rounds_decimals(client, household):
     wb.save(buf)
     row = client.post("/api/import/preview", files={"file": ("b.xlsx", buf.getvalue())}).json()["sheets"][0]["rows"][0]
     assert row["amounts"][:2] == [178, 99]  # flipped to positive, then the decimals dropped
+
+
+def test_checks_leave_other_accounts_balances_alone(client, household):
+    """Money moved to other accounts is meant to be spent, so their balance
+    drifting from the plan is not reported."""
+    savings = account(household, "savings")
+    add(client, household, "Alex", "income", "Salary", [30000] * 12)
+    add(client, household, "Shared", "expense", "Rent", [20000] * 12)
+    client.put(f"/api/accounts/{savings['id']}/balance", json={"year": 2027, "month": 1, "amount": 500000})
+    client.put(f"/api/accounts/{savings['id']}/balance", json={"year": 2027, "month": 3, "amount": 5000})
+    assert not any(f["type"] == "balance" for f in client.get("/api/checks").json()["findings"])

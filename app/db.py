@@ -176,6 +176,11 @@ MIGRATIONS = [
         PRIMARY KEY (item_id, year, month)
     );
     """,
+    # A rule can also require the amount: "NETFLIX for 129" is the Netflix
+    # item, and NETFLIX for 149 is left for someone to look at.
+    """
+    ALTER TABLE bank_rules ADD COLUMN amount_cents INTEGER;
+    """,
 ]
 
 

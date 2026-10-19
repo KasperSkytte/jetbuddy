@@ -222,6 +222,22 @@ def test_sorting_with_rules_and_actuals(client, household, bank):
     assert {r["pattern"]: r["ignore"] for r in rules} == {"netflix": False, "Husleje": True}
 
 
+def test_rule_with_amount_leaves_a_changed_amount_unsorted(client, household, bank):
+    alex = next(m for m in household["members"] if m["name"] == "Alex")
+    y, m = LAST_MONTH_END.year, LAST_MONTH_END.month
+    netflix = client.post("/api/items", json={"member_id": alex["id"], "kind": "expense", "name": "Netflix", "year": y,
+                                               "amounts": [129 if i == m - 1 else None for i in range(12)]}).json()
+    connect(client)
+    nflx = next(t for t in client.get("/api/bank/transactions", params={"year": y, "month": m}).json() if t["counterparty"] == "NETFLIX.COM")
+    client.put(f"/api/bank/transactions/{nflx['id']}", json={"item_id": netflix["id"], "rule": "netflix", "rule_amount": True})
+    assert client.get("/api/bank/status").json()["rules"][0]["amount"] == 129
+    bank.budget_tx.append(tx("t5", LAST_MONTH_END, "129.00", "DBIT", "NETFLIX.COM", "Same price"))
+    bank.budget_tx.append(tx("t6", LAST_MONTH_END, "149.00", "DBIT", "NETFLIX.COM", "Price went up"))
+    assert client.post("/api/bank/sync").json()["sorted"] == 1
+    txs = client.get("/api/bank/transactions", params={"year": y, "month": m}).json()
+    assert next(t for t in txs if t["text"] == "Price went up")["item_id"] is None
+
+
 def test_manual_sync_sends_psu_headers(client, household, bank):
     connect(client)
     bank.requests.clear()
@@ -357,3 +373,21 @@ def test_each_bank_account_gets_its_own_account(client, household, bank):
     client.post("/api/bank/sync")
     ids = [a["account_id"] for a in client.get("/api/bank/status").json()["accounts"]]
     assert None not in ids and len(set(ids)) == 2
+
+
+def test_balance_after_every_transaction(client, household, bank):
+    main = next(a for a in household["accounts"] if a["kind"] == "main")
+    connect(client)
+    years = sorted({TWO_MONTHS_END.year, TODAY.year})
+    points = [p for y in years for p in client.get(f"/api/accounts/{main['id']}/history", params={"year": y}).json()]
+    assert points[-1]["balance"] == 10000  # today's balance from the bank
+    by_amount = {p["amount"]: p["balance"] for p in points if p["amount"] is not None}
+    assert by_amount[-500] == 10000 and by_amount[-12000] == 10500 and by_amount[-129] == 10500 + 12000
+    assert [p["date"] for p in points] == sorted(p["date"] for p in points)
+
+
+def test_payment_type_from_the_text():
+    assert banking.payment_type("MCD NETFLIX.COM 1234") == ("Mastercard", "NETFLIX.COM 1234")
+    assert banking.payment_type("BS Ørsted Salg & Service") == ("Betalingsservice", "Ørsted Salg & Service")
+    assert banking.payment_type("BSA Biler") == (None, "BSA Biler")  # a name, not a code
+    assert banking.suggest_pattern("", "BS Husleje oktober") == "Husleje"
