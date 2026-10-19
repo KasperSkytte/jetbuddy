@@ -17,7 +17,7 @@ export function ExportSheet({ onClose }) {
       <p class="secondary" style="margin:0">${t('export.intro')}</p>
       <ul class="small secondary" style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px">
         <li>${t('export.sheetSummary')}</li><li>${t('export.sheetBudget')}</li>
-        <li>${t('export.sheetActual')}</li><li>${t('export.sheetBalances')}</li>
+        <li>${t('export.sheetBalances')}</li>
       </ul>
       <label class="field"><span>${t('export.year')}</span>
         <select class="input" value=${year} onChange=${(e) => setYear(Number(e.target.value))}>

@@ -474,3 +474,19 @@ def test_reconciled_months(client, household, bank):
     status = client.get("/api/bank/status").json()
     assert key in status["reconciled"]
     assert f"{TODAY.year}-{TODAY.month}" not in status["reconciled"]  # not over yet
+
+
+def test_excel_export_shows_the_budget_only(client, household, bank):
+    import io
+    import openpyxl
+    alex = next(m for m in household["members"] if m["name"] == "Alex")
+    y, m = LAST_MONTH_END.year, LAST_MONTH_END.month
+    netflix = client.post("/api/items", json={"member_id": alex["id"], "kind": "expense", "name": "Netflix", "year": y,
+                                               "amounts": [129 if i == m - 1 else None for i in range(12)]}).json()
+    connect(client)
+    nflx = next(t for t in client.get("/api/bank/transactions", params={"year": y, "month": m}).json() if t["counterparty"] == "NETFLIX.COM")
+    client.put(f"/api/bank/transactions/{nflx['id']}", json={"item_id": netflix["id"]})
+    wb = openpyxl.load_workbook(io.BytesIO(client.get(f"/api/export/{y}.xlsx").content))
+    assert "Budget and actual" not in wb.sheetnames
+    text = " ".join(str(c) for ws in wb for row in ws.iter_rows(values_only=True) for c in row if c is not None)
+    assert "Actual" not in text and "Keeping the budget" not in text

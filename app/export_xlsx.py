@@ -12,11 +12,11 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from . import banking, calc
+from . import calc
 
 TEXT = {
     "en": {
-        "summary": "Summary", "budget": "Budget", "actual": "Budget and actual", "balances": "Account balances",
+        "summary": "Summary", "budget": "Budget", "balances": "Account balances",
         "title": "Budget {year}", "made": "Made {date} with Sparegrisen. Amounts in {currency}.",
         "household": "Household", "key_figures": "Key figures",
         "per_month": "Per month (avg.)", "per_year": "Whole year",
@@ -30,15 +30,12 @@ TEXT = {
         "total_for": "Total {name}", "uncategorized": "Uncategorized",
         "accounts": "Account balances", "account": "Account", "latest_real": "Latest real balance", "at": "End of",
         "expected_dec": "Expected end of December",
-        "keeping": "Keeping the budget", "keeping_none": "No bank transactions sorted onto the budget this year.",
-        "keeping_text": "Items with bank transactions, in the months the bank has data for:",
-        "planned": "Budget", "actual_col": "Actual", "difference": "Difference", "difference_pct": "Difference %",
-        "month": "Month", "actual_note": "Actual = transactions from the bank, sorted onto the budget items.",
+        "month": "Month",
         "balances_note": "Black: real balance (from the bank or entered). Grey italics: expected from the budget.",
         "fixed_mark": "✓",
     },
     "da": {
-        "summary": "Oversigt", "budget": "Budget", "actual": "Budget og faktisk", "balances": "Kontosaldi",
+        "summary": "Oversigt", "budget": "Budget", "balances": "Kontosaldi",
         "title": "Budget {year}", "made": "Udarbejdet {date} med Sparegrisen. Beløb i {currency}.",
         "household": "Husstand", "key_figures": "Nøgletal",
         "per_month": "Pr. måned (gns.)", "per_year": "Hele året",
@@ -52,10 +49,7 @@ TEXT = {
         "total_for": "I alt {name}", "uncategorized": "Uden kategori",
         "accounts": "Kontosaldi", "account": "Konto", "latest_real": "Seneste faktiske saldo", "at": "Ultimo",
         "expected_dec": "Forventet ultimo december",
-        "keeping": "Overholdelse af budgettet", "keeping_none": "Ingen transaktioner fra banken er sorteret på budgettet i år.",
-        "keeping_text": "Poster med transaktioner fra banken, i de måneder banken har data for:",
-        "planned": "Budget", "actual_col": "Faktisk", "difference": "Afvigelse", "difference_pct": "Afvigelse %",
-        "month": "Måned", "actual_note": "Faktisk = transaktioner fra banken, sorteret på budgetposterne.",
+        "month": "Måned",
         "balances_note": "Sort: faktisk saldo (fra banken eller indtastet). Grå kursiv: forventet ud fra budgettet.",
         "fixed_mark": "✓",
     },
@@ -126,7 +120,6 @@ def build(conn: sqlite3.Connection, year: int, group: str = "auto") -> tuple[byt
         if ids else []
     )
     amounts = calc.year_amounts(conn, year)
-    actuals = banking.actuals(conn, year)
     summary = calc.summary(conn, year)
 
     for item in items:
@@ -203,33 +196,6 @@ def build(conn: sqlite3.Connection, year: int, group: str = "auto") -> tuple[byt
             last = max(i for i in range(12) if a["manual"][i])
             r += 1
             _row(ws, r, [accounts[a["id"]]["name"], _money(a["balances"][last]), f"{T['at']} {MONTHS_LONG[lang][last]}", _money(a["balances"][11])], fmt=MONEY)
-
-    # How well the budget was kept, where the bank can tell.
-    r += 2
-    ws.cell(row=r, column=1, value=T["keeping"]).font = BOLD
-    planned_c = actual_c = 0
-    for item in items:
-        act = actuals.get(item["id"])
-        if not act:
-            continue
-        for i in range(12):
-            if act[i] is not None:
-                planned_c += item["values"][i] or 0
-                actual_c += act[i]
-    if planned_c or actual_c:
-        r += 1
-        ws.cell(row=r, column=1, value=T["keeping_text"]).font = SUBTLE
-        r += 1
-        _row(ws, r, [T["planned"], T["actual_col"], T["difference"], T["difference_pct"]], font=BOLD, fill=HEADER_FILL)
-        r += 1
-        diff = actual_c - planned_c
-        _row(ws, r, [_money(planned_c), _money(actual_c), _money(diff)], fmt=MONEY_RED)
-        if planned_c:
-            c = ws.cell(row=r, column=4, value=diff / planned_c)
-            c.number_format = PCT
-    else:
-        r += 1
-        ws.cell(row=r, column=1, value=T["keeping_none"]).font = SUBTLE
 
     ws.column_dimensions["A"].width = 42
     for col in "BCDE":
@@ -310,38 +276,6 @@ def build(conn: sqlite3.Connection, year: int, group: str = "auto") -> tuple[byt
         for c in row[2:]:
             c.alignment = Alignment(horizontal="right")
     _setup_print(ws)
-
-    # ---------------------------------------------------------------- budget and actual
-    with_actual = [i for i in items if actuals.get(i["id"]) and any(v is not None for v in actuals[i["id"]])]
-    if with_actual:
-        ws = wb.create_sheet(T["actual"])
-        ws["A1"] = f"{T['actual']} {year} · {household}"
-        ws["A1"].font = TITLE
-        ws["A2"] = T["actual_note"]
-        ws["A2"].font = SUBTLE
-        _row(ws, 4, [T["month"], T["planned"], T["actual_col"], T["difference"], T["difference_pct"]], font=BOLD, fill=HEADER_FILL)
-        r = 4
-        for m in range(12):
-            planned = sum(i["values"][m] or 0 for i in with_actual if actuals[i["id"]][m] is not None)
-            actual = sum(actuals[i["id"]][m] or 0 for i in with_actual if actuals[i["id"]][m] is not None)
-            if not (planned or actual):
-                continue
-            r += 1
-            _row(ws, r, [MONTHS_LONG[lang][m].capitalize(), _money(planned), _money(actual), _money(actual - planned)], fmt=MONEY_RED)
-            if planned:
-                ws.cell(row=r, column=5, value=(actual - planned) / planned).number_format = PCT
-        r += 2
-        _row(ws, r, [T["item"], T["planned"], T["actual_col"], T["difference"], T["who"]], font=BOLD, fill=HEADER_FILL)
-        for item in with_actual:
-            act = actuals[item["id"]]
-            planned = sum(item["values"][m] or 0 for m in range(12) if act[m] is not None)
-            actual = sum(v for v in act if v is not None)
-            r += 1
-            _row(ws, r, [item["name"], _money(planned), _money(actual), _money(actual - planned), members.get(item["member_id"], {}).get("name", "")], fmt=MONEY_RED)
-        ws.column_dimensions["A"].width = 34
-        for col in "BCDE":
-            ws.column_dimensions[col].width = 16
-        _setup_print(ws, landscape=False)
 
     # ---------------------------------------------------------------- account balances
     acc_rows = [a for a in summary["accounts"] if a["id"] in accounts and any(v is not None for v in a["balances"])]
