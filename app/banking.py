@@ -864,12 +864,13 @@ def balance_history(conn: sqlite3.Connection, account_id: int, year: int) -> lis
     ).fetchall()
     balance = sum(b["balance_cents"] for b in linked)
     ref = max(b["balance_date"] or date.today().isoformat() for b in linked)
-    points = [{"date": ref, "balance": balance, "amount": None, "text": None}]
+    points = [{"date": ref, "balance": balance, "amount": None, "text": None, "via": None}]
     for r in rows:
         if r["booking_date"] > ref:
             continue
         points.append({"date": r["booking_date"], "balance": balance, "amount": r["cents"],
-                       "text": payment_type(r["counterparty"] or r["text"])[1] or r["text"]})
+                       "text": payment_type(r["counterparty"] or r["text"])[1] or r["text"],
+                       "via": payment_type(r["text"])[0] or payment_type(r["counterparty"])[0]})
         balance -= r["cents"]
         if r["booking_date"] < f"{year}-01-01":
             break

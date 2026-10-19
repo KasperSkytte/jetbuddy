@@ -6,6 +6,7 @@ import { Icon, Logo, YearStepper, toastError } from './ui.js';
 import { Overview } from './views/overview.js';
 import { Month } from './views/month.js';
 import { Plan } from './views/plan.js';
+import { Accounts } from './views/accounts.js';
 import { Trends } from './views/trends.js';
 import { Settings } from './views/settings.js';
 import { Setup } from './views/setup.js';
@@ -15,6 +16,7 @@ const PAGES = [
   { path: '', icon: 'overview', title: 'nav.overview', view: Overview },
   { path: 'month', icon: 'month', title: 'nav.month', view: Month },
   { path: 'plan', icon: 'plan', title: 'nav.plan', view: Plan },
+  { path: 'accounts', icon: 'wallet', title: 'nav.accounts', view: Accounts },
   { path: 'trends', icon: 'trends', title: 'nav.trends', view: Trends, noYear: true },
   { path: 'settings', icon: 'settings', title: 'nav.settings', view: Settings, noYear: true },
 ];
