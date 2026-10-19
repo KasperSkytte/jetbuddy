@@ -443,3 +443,22 @@ def test_changing_the_budget_month_moves_transactions(client, household, bank):
     from app.banking import budget_month
     expected = budget_month((LAST_MONTH_END - timedelta(days=3)).isoformat(), "before_payday")
     assert ("Husleje" in rows()) == (expected == (y, m))
+
+
+def test_moving_a_transaction_to_another_month(client, household, bank):
+    connect(client)
+    y, m = LAST_MONTH_END.year, LAST_MONTH_END.month
+    ny, nm = TODAY.year, TODAY.month
+    rows = lambda yy, mm: client.get("/api/bank/transactions", params={"year": yy, "month": mm}).json()
+    rent = next(t for t in rows(y, m) if t["text"] == "Husleje")
+    client.put(f"/api/bank/transactions/{rent['id']}/month", json={"year": ny, "month": nm})
+    moved = next(t for t in rows(ny, nm) if t["id"] == rent["id"])
+    assert moved["manual_month"] and not any(t["id"] == rent["id"] for t in rows(y, m))
+    # A sync or a change of budget month leaves it where it was put.
+    client.post("/api/bank/sync")
+    client.put("/api/settings", json={"balance_day": "before_payday"})
+    assert any(t["id"] == rent["id"] for t in rows(ny, nm))
+    # Back to its own month.
+    client.put("/api/settings", json={"balance_day": "last"})
+    client.put(f"/api/bank/transactions/{rent['id']}/month", json={})
+    assert any(t["id"] == rent["id"] and not t["manual_month"] for t in rows(y, m))

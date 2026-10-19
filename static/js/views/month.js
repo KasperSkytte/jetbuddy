@@ -3,11 +3,11 @@ import { api } from '../api.js';
 import { useStore, useData, setStore } from '../store.js';
 import { t } from '../i18n.js';
 import { money, signedMoney, monthNames, amount } from '../fmt.js';
-import { AmountInput, Chips, Dot, Icon, Empty, Sheet, seriesColor, useWide, KindSwitch, SortChoice, toast, toastError } from '../ui.js';
+import { AmountInput, Chips, Dot, Icon, Empty, Segmented, seriesColor, useWide, KindSwitch, SortChoice } from '../ui.js';
 import { members, itemsOf, monthTotals, categoryById, accountById, sortItems, measureDate, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
 import { CopyYearBanner } from './plan.js';
-import { TransactionsSheet, reconcile } from './bank.js';
+import { Reconcile, ItemBankSheet, itemStatus } from './reconcile.js';
 
 function MonthPicker({ month, year, onChange }) {
   const long = monthNames('long');
@@ -43,7 +43,7 @@ function MonthPicker({ month, year, onChange }) {
   </div>`;
 }
 
-function ItemRow({ item, month, year, household, onSaved, onOpen, proposals = [], onPropose, onRefuse, onBank }) {
+function ItemRow({ item, month, year, household, onSaved, onOpen, onBank }) {
   const category = categoryById(household, item.category_id);
   const account = accountById(household, item.account_id);
   const meta = [category?.name, account && '→ ' + account.name].filter(Boolean).join(' · ');
@@ -68,27 +68,15 @@ function ItemRow({ item, month, year, household, onSaved, onOpen, proposals = []
       ${actual != null && html`<div class="bank-line">
         <button class=${'linkish ' + (matches ? 'good' : '')} title=${t('month.bankShow')} onClick=${(e) => { e.stopPropagation(); onBank(item); }}>
           <${Icon} name=${matches ? 'check' : 'bank'} size=${13} stroke=${2.2} /> ${t('month.bankPaid', { amount: amount(actual) })}</button>
-        ${!matches && html`<button class="btn small ghost" title=${t('month.useBankHint')} onClick=${(e) => { e.stopPropagation(); save(actual); }}>${t('month.useBank')}</button>`}
       </div>`}
     </div>
     <${AmountInput} value=${item.amounts[month - 1]} onSave=${save} label=${item.name} problem=${!!item.unreadable?.[month - 1]}
       placeholder=${prev != null ? amount(prev) : '–'} />
-      ${actual == null && proposals.length === 1 && html`<div class="proposal" onClick=${(e) => e.stopPropagation()}>
-        <${Icon} name="bank" size=${13} stroke=${2.2} />
-        <span class="spacer">${t('month.proposal', { name: txName(proposals[0]), date: dayMonth(proposals[0].booking_date) })}${proposals[0].via && html` <span class="via">${proposals[0].via}</span>`}</span>
-        <button class="btn small" onClick=${() => onPropose(proposals[0], item)}>${t('month.proposalUse')}</button>
-        <button class="btn small ghost icon" aria-label=${t('month.proposalNo')} title=${t('month.proposalNo')} onClick=${() => onRefuse(proposals[0], item)}><${Icon} name="close" size=${15} /></button>
-      </div>`}
-      ${actual == null && proposals.length > 1 && html`<div class="proposal" onClick=${(e) => e.stopPropagation()}>
-        <${Icon} name="bank" size=${13} stroke=${2.2} />
-        <span class="spacer">${t('month.proposals', { n: proposals.length })}</span>
-        <button class="btn small" onClick=${() => onBank(item)}>${t('month.proposalPick')}</button>
-      </div>`}
   </div>`;
 }
 
 /** One person's income or expenses for the month. */
-function MemberSection({ member, kind, items, month, year, household, onSaved, onOpen, onAdd, sortBy, proposalsOf, onPropose, onRefuse, onBank }) {
+function MemberSection({ member, kind, items, month, year, household, onSaved, onOpen, onAdd, sortBy, onBank }) {
   const [showAll, setShowAll] = useState(false);
   const all = sortItems(items.filter((i) => i.kind === kind), sortBy, { month, household });
   const withAmount = all.filter((i) => i.amounts[month - 1] != null || i.unreadable?.[month - 1]);
@@ -102,7 +90,7 @@ function MemberSection({ member, kind, items, month, year, household, onSaved, o
       <span class="num small muted" style="font-weight:600">${money(kind === 'income' ? totals.income : totals.expense)}</span>
     </div>
     <div class="list">${shown.map((item) => html`<${ItemRow} key=${item.id} item=${item} month=${month} year=${year}
-      household=${household} onSaved=${onSaved} onOpen=${onOpen} proposals=${proposalsOf(item)} onPropose=${onPropose} onRefuse=${onRefuse} onBank=${onBank} />`)}</div>
+      household=${household} onSaved=${onSaved} onOpen=${onOpen} onBank=${onBank} />`)}</div>
     ${all.length === 0 && html`<p class="small muted" style="padding:4px 16px 8px;margin:0">${t('month.noItems')}</p>`}
     ${hidden > 0 && html`<button class="add-row" style="color:var(--text-2)" onClick=${() => setShowAll(!showAll)}>
       <${Icon} name=${showAll ? 'up' : 'down'} size=${18} />${showAll ? t('month.hideEmpty') : t('month.showEmpty', { n: hidden })}</button>`}
@@ -151,38 +139,18 @@ export function Month() {
   const summary = useData(`/api/summary/${year}`);
   const bank = useData('/api/bank/status');
   const [editing, setEditing] = useState(null); // { item } or { member, kind }
-  const [sorting, setSorting] = useState(false);
   const banked = bank.data?.configured && bank.data.accounts.some((a) => a.budget); // the budget account is from a bank
   const unsorted = bank.data?.unsorted[`${year}-${month}`] || 0;
-  const differ = items.data && !items.stale ? reconcile(items.data, month).differ.length : 0;
-  // Bank transactions not on the budget yet, offered at the item with exactly that amount.
+  const differ = items.data && !items.stale ? itemStatus(items.data, month).filter((r) => r.bad).length : 0;
   const txs = useData(banked ? `/api/bank/transactions?year=${year}&month=${month}` : null);
-  const open = (txs.data || []).filter((x) => !x.item_id && !x.ignored);
-  const proposalsOf = (item) => {
-    const planned = item.amounts[month - 1];
-    if (!planned) return [];
-    return open.filter((x) => (item.kind === 'income' ? x.amount > 0 : x.amount < 0) && Math.abs(Math.abs(x.amount) - planned) < 0.005
-      && !x.not_items.includes(item.id));
-  };
+  const reconciling = banked && store.monthMode === 'reconcile';
   const [bankItem, setBankItem] = useState(null); // the item whose bank transactions are open
   const bankChanged = () => {
     items.reload();
     txs.reload();
     bank.reload();
+    summary.reload();
   };
-  const act = async (fn, message) => {
-    try {
-      await fn();
-      if (message) toast(message);
-      bankChanged();
-    } catch (e) {
-      toastError(e);
-    }
-  };
-  // Put on the item, and from now on automatically (same text and amount).
-  const propose = (tx, item) => act(() => api.put(`/api/bank/transactions/${tx.id}`, { item_id: item.id, rule: tx.pattern || null, rule_amount: true }), t('month.proposalDone'));
-  const refuse = (tx, item) => act(() => api.post(`/api/bank/transactions/${tx.id}/not/${item.id}`));
-  const takeOff = (tx) => act(() => api.put(`/api/bank/transactions/${tx.id}`, { item_id: null }), t('month.takenOff'));
   const people = members(household);
   const filter = people.some((m) => m.id === store.monthMember) ? store.monthMember : 'all';
 
@@ -208,26 +176,26 @@ export function Month() {
     }
     return shown.map((m) => html`<${MemberSection} key=${m.id + '-' + kind + '-' + month} member=${m} kind=${kind}
       items=${itemsOf(list, m.id)} month=${month} year=${year} household=${household}
-      onSaved=${onSaved} onOpen=${(item) => setEditing({ item })} onAdd=${onAdd} sortBy=${store.sortBy}
-      proposalsOf=${proposalsOf} onPropose=${propose} onRefuse=${refuse} onBank=${setBankItem} />`);
+      onSaved=${onSaved} onOpen=${(item) => setEditing({ item })} onAdd=${onAdd} sortBy=${store.sortBy} onBank=${setBankItem} />`);
   };
 
   return html`<div>
     <${MonthPicker} month=${month} year=${year} onChange=${(m, y) => setStore({ month: m, year: y })} />
-    <div class="card" style="margin:10px 0 12px">
+    <div class="card" style=${{ margin: '10px 0 12px', display: reconciling ? 'none' : null }}>
       <div class="sum-strip">
         <div><div class="label"><${Dot} color=${INCOME_COLOR} size=${8} />${t('common.income')}</div><div class="value">${totals ? money(totals.income) : '–'}</div></div>
         <div><div class="label"><${Dot} color=${EXPENSE_COLOR} size=${8} />${t('common.expenses')}</div><div class="value">${totals ? money(totals.expense) : '–'}</div></div>
         <div><div class="label">${t('common.balance')}</div><div class=${'value ' + (totals?.net > 0.5 ? 'good' : totals?.net < -0.5 ? 'bad' : '')}>${totals ? signedMoney(totals.net) : '–'}</div></div>
       </div>
     </div>
-    ${banked && html`<button class="card bank-card" onClick=${() => setSorting(true)}>
-      <${Icon} name="bank" />
-      <span class="spacer"><strong>${t('month.reconcile', { month: monthNames('long')[month - 1] })}</strong>
-        <div class="small secondary">${unsorted || differ ? [unsorted && t('month.notInBudget', { n: unsorted }), differ && t('month.deviations', { n: differ })].filter(Boolean).join(' · ')
-          : t('month.allReconciled')}</div></span>
-      <${Icon} name="right" size=${18} />
-    </button>`}
+    ${banked && html`<div class="mode-switch"><${Segmented} value=${reconciling ? 'reconcile' : 'budget'} label=${t('month.mode')}
+      onChange=${(v) => setStore({ monthMode: v })}
+      options=${[{ value: 'budget', label: t('month.modeBudget') },
+        { value: 'reconcile', label: unsorted ? t('month.modeReconcileN', { n: unsorted }) : t('month.modeReconcile') }]} />
+      ${!reconciling && html`<span class="small secondary">${unsorted || differ ? [unsorted && t('month.notInBudget', { n: unsorted }), differ && t('month.deviations', { n: differ })].filter(Boolean).join(' · ')
+        : t('month.allReconciled')}</span>`}</div>`}
+    ${reconciling ? (!list || !txs.data ? html`<div class="loading">${t('common.loading')}</div>`
+      : html`<${Reconcile} year=${year} month=${month} items=${list} txs=${txs.data} onChanged=${bankChanged} />`) : html`
     <div style="margin-bottom:12px">
       <${Chips} label=${t('month.filter')} value=${filter} onChange=${(v) => setStore({ monthMember: v === 'all' ? null : v })}
         options=${[{ value: 'all', label: t('month.everyone') }, ...people.map((m) => ({ value: m.id, label: m.name, color: seriesColor(m.color) }))]} />
@@ -243,50 +211,10 @@ export function Month() {
           ${column(kind)}</div>`)}</div>`
         : column(store.kindTab || 'expense')}
       ${filter === 'all' && html`<${Balances} summary=${summary.data} month=${month} year=${year} household=${household} bank=${bank.data} onSaved=${summary.reload} />`}
-    `}
+    `}`}
     ${editing && html`<${ItemSheet} year=${year} item=${editing.item} member=${editing.member} kind=${editing.kind}
       focusMonth=${month} onClose=${() => setEditing(null)} onChanged=${() => { items.reload(); summary.reload(); }} />`}
-    ${bankItem && html`<${ItemBankSheet} item=${(items.data || []).find((i) => i.id === bankItem.id) || bankItem} month=${month}
-      on=${(txs.data || []).filter((x) => x.item_id === bankItem.id)} proposals=${proposalsOf(bankItem)}
-      onPropose=${propose} onRefuse=${refuse} onTakeOff=${takeOff} onClose=${() => setBankItem(null)} />`}
-    ${sorting && html`<${TransactionsSheet} year=${year} month=${month} items=${items.data || []} onClose=${() => setSorting(false)}
-      onChanged=${() => { items.reload(); bank.reload(); txs.reload(); }} />`}
+    ${bankItem && txs.data && html`<${ItemBankSheet} item=${(items.data || []).find((i) => i.id === bankItem.id) || bankItem} year=${year} month=${month}
+      txs=${txs.data} items=${items.data || []} onClose=${() => setBankItem(null)} onChanged=${bankChanged} />`}
   </div>`;
-}
-
-function dayMonth(iso) {
-  return new Intl.DateTimeFormat(document.documentElement.lang || undefined, { day: 'numeric', month: 'short' }).format(new Date(iso + 'T12:00:00'));
-}
-
-function txName(tx) {
-  return tx.counterparty || tx.text || '–';
-}
-
-/**
- * An item's bank transactions this month: the ones on it (which can be taken
- * off again) and the ones with exactly its amount (to put on, or turn down).
- */
-function ItemBankSheet({ item, month, on, proposals, onPropose, onRefuse, onTakeOff, onClose }) {
-  const row = (tx, buttons) => html`<div class="list-row" key=${tx.id} style="min-height:56px">
-    <div class="main-col"><div class="name ellipsis" style="font-weight:520">${txName(tx)}</div>
-      <div class="meta">${tx.via && html`<span class="via">${tx.via}</span>`} ${dayMonth(tx.booking_date)}${tx.counterparty && tx.text ? ' · ' + tx.text : ''}</div></div>
-    <span class="num" style="font-weight:650">${amount(Math.abs(tx.amount))}</span>
-    ${buttons}
-  </div>`;
-  return html`<${Sheet} title=${item.name} onClose=${onClose}>
-    <div class="stack">
-      <div>
-        <div class="group-label" style="padding-left:0">${t('month.bankOn', { month: monthNames('long')[month - 1] })}</div>
-        ${on.length === 0 ? html`<p class="small muted" style="margin:0">${t('month.bankNone')}</p>`
-          : html`<div class="list" style="margin:0 -18px">${on.map((tx) => row(tx, html`<button class="btn small ghost" onClick=${() => onTakeOff(tx)}>${t('month.takeOff')}</button>`))}</div>
-            <p class="small muted" style="margin:6px 0 0">${t('month.takeOffHint')}</p>`}
-      </div>
-      ${proposals.length > 0 && html`<div>
-        <div class="group-label" style="padding-left:0">${t('month.sameAmount')}</div>
-        <div class="list" style="margin:0 -18px">${proposals.map((tx) => row(tx, html`<div class="row" style="gap:6px">
-          <button class="btn small" onClick=${() => onPropose(tx, item)}>${t('month.proposalUse')}</button>
-          <button class="btn small ghost icon" aria-label=${t('month.proposalNo')} title=${t('month.proposalNo')} onClick=${() => onRefuse(tx, item)}><${Icon} name="close" size=${15} /></button></div>`))}</div>
-      </div>`}
-    </div>
-  </${Sheet}>`;
 }

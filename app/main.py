@@ -1274,6 +1274,9 @@ class AssignIn(BaseModel):
     rule: str | None = Field(None, max_length=200)
     # ... but only those of the same amount as this one.
     rule_amount: bool = False
+    # Taking it off an item normally means "not that item" (no suggestions or
+    # rules put it back). An undo right after putting it on doesn't.
+    remember: bool = True
 
 
 @app.put("/api/bank/transactions/{id}")
@@ -1283,16 +1286,33 @@ def bank_assign(id: int, body: AssignIn, conn: sqlite3.Connection = Conn):
         one(conn, "SELECT id FROM items WHERE id = ?", (body.item_id,))
     sorted_count = 0
     with db.transaction(conn):
-        if tx["item_id"] is not None and tx["item_id"] != body.item_id:
+        if tx["item_id"] is not None and tx["item_id"] != body.item_id and body.remember:
             banking.not_item(conn, id, tx["item_id"])  # taken off an item: don't let a rule put it back
         banking._assign(conn, id, body.item_id, body.ignored and body.item_id is None, tx["year"])
+        rule_id = None
         if body.rule and body.rule.strip() and (body.item_id is not None or body.ignored):
-            conn.execute(
+            rule_id = conn.execute(
                 "INSERT INTO bank_rules (pattern, item_id, ignore, amount_cents) VALUES (?, ?, ?, ?)",
                 (body.rule.strip(), body.item_id, int(body.item_id is None), abs(tx["cents"]) if body.rule_amount else None),
-            )
+            ).lastrowid
             sorted_count = banking.apply_rules(conn)
-    return {"ok": True, "sorted": sorted_count}
+    # rule_id: for an undo, which deletes the rule again.
+    return {"ok": True, "sorted": sorted_count, "rule_id": rule_id}
+
+
+class MoveIn(BaseModel):
+    # The budget month to put it in; leave both out to put it back in its own.
+    year: int | None = Field(None, ge=1900, le=2200)
+    month: int | None = Field(None, ge=1, le=12)
+
+
+@app.put("/api/bank/transactions/{id}/month")
+def bank_move(id: int, body: MoveIn, conn: sqlite3.Connection = Conn):
+    """A transaction that belongs to another budget month than it was booked in."""
+    one(conn, "SELECT id FROM bank_transactions WHERE id = ?", (id,))
+    with db.transaction(conn):
+        banking.move_transaction(conn, id, body.year, body.month)
+    return {"ok": True}
 
 
 @app.post("/api/bank/transactions/{id}/not/{item_id}")
@@ -1301,6 +1321,13 @@ def bank_not_item(id: int, item_id: int, conn: sqlite3.Connection = Conn):
     one(conn, "SELECT id FROM bank_transactions WHERE id = ?", (id,))
     with db.transaction(conn):
         banking.not_item(conn, id, item_id)
+    return {"ok": True}
+
+
+@app.delete("/api/bank/transactions/{id}/not/{item_id}")
+def bank_not_item_undo(id: int, item_id: int, conn: sqlite3.Connection = Conn):
+    """Undo turning a suggestion down."""
+    conn.execute("DELETE FROM bank_not_item WHERE transaction_id = ? AND item_id = ?", (id, item_id))
     return {"ok": True}
 
 

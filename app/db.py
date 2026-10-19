@@ -211,6 +211,11 @@ MIGRATIONS = [
         PRIMARY KEY (transaction_id, item_id)
     );
     """,
+    # A transaction moved to another budget month by hand (it belongs to the
+    # month before or after the one it was booked in) stays where it was put.
+    """
+    ALTER TABLE bank_transactions ADD COLUMN manual_month INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 

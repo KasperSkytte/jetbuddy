@@ -621,10 +621,24 @@ def budget_month(day: str, mode: str = "last") -> tuple[int, int]:
     return d.year, d.month
 
 
+def move_transaction(conn: sqlite3.Connection, tx_id: int, year: int | None, month: int | None) -> None:
+    """Put a transaction in another budget month, or back in its own (None)."""
+    if year is None or month is None:
+        r = conn.execute("SELECT booking_date FROM bank_transactions WHERE id = ?", (tx_id,)).fetchone()
+        year, month = budget_month(r[0], balance_day_mode(conn))
+        conn.execute("UPDATE bank_transactions SET year = ?, month = ?, manual_month = 0 WHERE id = ?", (year, month, tx_id))
+    else:
+        conn.execute("UPDATE bank_transactions SET year = ?, month = ?, manual_month = 1 WHERE id = ?", (year, month, tx_id))
+    item = conn.execute("SELECT item_id FROM bank_transactions WHERE id = ?", (tx_id,)).fetchone()[0]
+    if item is not None:
+        conn.execute("INSERT OR IGNORE INTO item_years (item_id, year) VALUES (?, ?)", (item, year))
+
+
 def regroup_transactions(conn: sqlite3.Connection) -> None:
-    """Put every transaction in its budget month again, after the setting changed."""
+    """Put every transaction in its budget month again, after the setting
+    changed; those moved by hand stay."""
     mode = balance_day_mode(conn)
-    for r in conn.execute("SELECT id, booking_date, item_id FROM bank_transactions").fetchall():
+    for r in conn.execute("SELECT id, booking_date, item_id FROM bank_transactions WHERE manual_month = 0").fetchall():
         y, m = budget_month(r["booking_date"], mode)
         conn.execute("UPDATE bank_transactions SET year = ?, month = ? WHERE id = ?", (y, m, r["id"]))
         if r["item_id"] is not None:
@@ -782,8 +796,10 @@ def _sync_account(conn: sqlite3.Connection, eb: EnableBanking, ba, psu: dict | N
             ).fetchone()
             if existing:
                 conn.execute(
-                    "UPDATE bank_transactions SET booking_date = ?, year = ?, month = ?, cents = ?, counterparty = ?, text = ? WHERE id = ?",
-                    (day, y, m, cents, counterparty, text, existing[0]),
+                    "UPDATE bank_transactions SET booking_date = ?, cents = ?, counterparty = ?, text = ?, "
+                    "year = CASE WHEN manual_month THEN year ELSE ? END, month = CASE WHEN manual_month THEN month ELSE ? END "
+                    "WHERE id = ?",
+                    (day, cents, counterparty, text, y, m, existing[0]),
                 )
             else:
                 cur = conn.execute(
@@ -892,6 +908,7 @@ def month_transactions(conn: sqlite3.Connection, year: int, month: int) -> list[
             tx["suggestions"] = [i for _, i in sorted(scored, key=lambda s: -s[0])[:3]]
         tx["amount"] = db.from_cents(tx.pop("cents"))
         tx["ignored"] = bool(tx["ignored"])
+        tx["manual_month"] = bool(tx["manual_month"])
         tx["pattern"] = suggest_pattern(tx["counterparty"], tx["text"])
         tx["via"] = payment_type(tx["text"])[0] or payment_type(tx["counterparty"])[0]
     return rows

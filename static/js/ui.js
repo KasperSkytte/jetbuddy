@@ -91,17 +91,21 @@ function renderToasts() {
     document.body.appendChild(toastRoot);
   }
   render(html`<div class="toasts" role="status" aria-live="polite">
-    ${toasts.map((m) => html`<div key=${m.id} class=${'toast' + (m.error ? ' error' : '')}>${m.text}</div>`)}
+    ${toasts.map((m) => html`<div key=${m.id} class=${'toast' + (m.error ? ' error' : '')}>${m.text}
+      ${m.action && html`<button class="toast-action" onClick=${() => { dismiss(m.id); m.action.run(); }}>${m.action.label}</button>`}</div>`)}
   </div>`, toastRoot);
 }
-export function toast(text, { error = false } = {}) {
-  const id = Math.random();
-  toasts = [...toasts, { id, text, error }];
+function dismiss(id) {
+  toasts = toasts.filter((m) => m.id !== id);
   renderToasts();
-  setTimeout(() => {
-    toasts = toasts.filter((m) => m.id !== id);
-    renderToasts();
-  }, error ? 5000 : 2600);
+}
+
+/** A short message. action: { label, run } adds a button, e.g. to undo. */
+export function toast(text, { error = false, action = null } = {}) {
+  const id = Math.random();
+  toasts = [...toasts, { id, text, error, action }];
+  renderToasts();
+  setTimeout(() => dismiss(id), error || action ? 5000 : 2600);
 }
 /** An error in the app's language when it has a translation, else as the server said it. */
 export function errorText(e) {
