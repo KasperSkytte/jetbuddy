@@ -1,4 +1,4 @@
-"""Add a made-up family to a Jetbuddy, to try it out or take screenshots.
+"""Add a made-up family to Sparegrisen, to try it out or take screenshots.
 
     python scripts/seed_demo.py http://localhost:8000
 

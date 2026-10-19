@@ -93,7 +93,7 @@ export function InstallSheet({ onClose }) {
   return html`<${Sheet} title=${t('install.title')} onClose=${onClose}><${InstallGuide} /></${Sheet}>`;
 }
 
-const DISMISSED = 'jetbuddy.installTipDismissed';
+const DISMISSED = 'sparegrisen.installTipDismissed';
 
 /** A small tip on phones that haven't added the app to the home screen yet. */
 export function InstallTip() {

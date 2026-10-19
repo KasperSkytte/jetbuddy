@@ -39,7 +39,7 @@ class FakeBank:
     ]
 
     def __init__(self, public_key):
-        self.shared = {"u-budget", "u-savings"}  # the accounts the bank lets Jetbuddy see
+        self.shared = {"u-budget", "u-savings"}  # the accounts the bank lets Sparegrisen see
         self.public_key = public_key
         self.requests = []
         self.balance = "10000.00"
@@ -120,8 +120,8 @@ def test_config_rejects_bad_key(client, household):
     assert client.get("/api/bank/status").json()["configured"] is False
 
 
-def test_certificate_made_by_jetbuddy(client, household, monkeypatch):
-    """The flow in the app: Jetbuddy makes the key, the user registers the
+def test_certificate_made_by_sparegrisen(client, household, monkeypatch):
+    """The flow in the app: Sparegrisen makes the key, the user registers the
     certificate with Enable Banking and pastes back the application ID."""
     cert_pem = client.post("/api/bank/certificate").json()["certificate"]
     assert cert_pem.startswith("-----BEGIN CERTIFICATE-----")
@@ -335,7 +335,7 @@ def test_suggested_rule_pattern_skips_what_changes():
 
 def test_bank_accounts_are_linked_automatically(client, household, bank):
     """Budgetkonto and Opsparing match the household's accounts by name; a
-    third account gets a new Jetbuddy account of its own."""
+    third account gets a new Sparegrisen account of its own."""
     original = bank.handler
 
     def three_accounts(request):

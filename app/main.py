@@ -3,7 +3,6 @@ import csv
 import io
 import json
 import logging
-import os
 import shutil
 import sqlite3
 import time
@@ -19,6 +18,7 @@ from pydantic import BaseModel, Field
 from urllib.parse import quote
 
 from . import __version__, auth, banking, calc, checks, db, importer
+from . import env as getenv
 from . import export_xlsx as export_workbook
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -27,7 +27,7 @@ MAX_IMPORT_BYTES = 10 * 1024 * 1024
 
 
 
-log = logging.getLogger("jetbuddy")
+log = logging.getLogger("sparegrisen")
 
 
 class AppError(HTTPException):
@@ -59,7 +59,7 @@ def _scheduled_sync() -> None:
 
 
 async def _bank_sync_loop() -> None:
-    """Sync connected banks every JETBUDDY_BANK_SYNC_HOURS (checked every 10 minutes)."""
+    """Sync connected banks every SPAREGRISEN_BANK_SYNC_HOURS (checked every 10 minutes)."""
     while True:
         await asyncio.sleep(600)
         try:
@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Jetbuddy", version=__version__, lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json"
+    title="Sparegrisen", version=__version__, lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json"
 )
 
 
@@ -916,11 +916,11 @@ TABLES = [
 
 @app.get("/api/export")
 def export(conn: sqlite3.Connection = Conn):
-    data = {"format": "jetbuddy", "schema": len(db.MIGRATIONS), "exported": int(time.time())}
+    data = {"format": "sparegrisen", "schema": len(db.MIGRATIONS), "exported": int(time.time())}
     for t in TABLES:
         data[t] = rows(conn.execute(f"SELECT * FROM {t}"))
     stamp = time.strftime("%Y-%m-%d")
-    return JSONResponse(data, headers={"Content-Disposition": f'attachment; filename="jetbuddy-backup-{stamp}.json"'})
+    return JSONResponse(data, headers={"Content-Disposition": f'attachment; filename="sparegrisen-backup-{stamp}.json"'})
 
 
 @app.post("/api/restore")
@@ -929,10 +929,10 @@ async def restore(request: Request, conn: sqlite3.Connection = Conn):
         data = json.loads(await request.body())
     except ValueError:
         raise AppError(422, "NOT_JSON", "not a JSON file")
-    if not isinstance(data, dict) or data.get("format") != "jetbuddy":
-        raise AppError(422, "NOT_BACKUP", "not a Jetbuddy backup")
+    if not isinstance(data, dict) or data.get("format") not in ("sparegrisen", "jetbuddy"):  # the app's old name
+        raise AppError(422, "NOT_BACKUP", "not a Sparegrisen backup")
     if data.get("schema", 0) > len(db.MIGRATIONS):
-        raise AppError(422, "BACKUP_TOO_NEW", "this backup is from a newer version of Jetbuddy")
+        raise AppError(422, "BACKUP_TOO_NEW", "this backup is from a newer version of Sparegrisen")
     try:
         with db.transaction(conn):
             for t in reversed(TABLES):
@@ -1114,7 +1114,7 @@ def reset_checks(conn: sqlite3.Connection = Conn):
 
 
 def _redirect_url(request: Request) -> str:
-    base = os.environ.get("JETBUDDY_PUBLIC_URL") or str(request.base_url)
+    base = getenv("PUBLIC_URL") or str(request.base_url)
     return base.rstrip("/") + "/api/bank/callback"
 
 
@@ -1159,7 +1159,7 @@ def bank_status(request: Request, conn: sqlite3.Connection = Conn):
     return {
         "configured": bool(config),
         "app_id": config[0] if config else None,
-        # The certificate Jetbuddy made for Enable Banking: in use, or waiting to be registered.
+        # The certificate Sparegrisen made for Enable Banking: in use, or waiting to be registered.
         "certificate": banking.current_certificate(bdir),
         "pending_certificate": banking.pending_certificate(bdir),
         "redirect_url": _redirect_url(request),
@@ -1173,7 +1173,7 @@ def bank_status(request: Request, conn: sqlite3.Connection = Conn):
 
 @app.post("/api/bank/certificate")
 def bank_certificate(request: Request):
-    """A key pair for registering Jetbuddy with Enable Banking; returns the certificate to paste there."""
+    """A key pair for registering Sparegrisen with Enable Banking; returns the certificate to paste there."""
     return {"certificate": banking.new_certificate(budget_dir(request))}
 
 

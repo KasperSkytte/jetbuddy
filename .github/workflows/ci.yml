@@ -18,7 +18,7 @@ jobs:
       - run: pytest -q
 
   image:
-    # Publishes ghcr.io/<owner>/jetbuddy: "latest" from main, and a version tag
+    # Publishes ghcr.io/<owner>/sparegrisen: "latest" from main, and a version tag
     # for every v* git tag. Built for both x86 servers and Raspberry Pis.
     needs: test
     if: github.event_name == 'push'
@@ -38,7 +38,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/jetbuddy
+          images: ghcr.io/${{ github.repository_owner }}/sparegrisen
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}

@@ -59,7 +59,7 @@ export function Setup({ onDone, onBack }) {
   };
 
   return html`<div class="center-page"><form class="card center-card stack" style="gap:16px" onSubmit=${submit}>
-    <div class="logo-row"><${Logo} size=${44} /><div><div class="name">Jetbuddy</div><div class="small secondary">${t('setup.tagline')}</div></div></div>
+    <div class="logo-row"><${Logo} size=${44} /><div><div class="name">Sparegrisen</div><div class="small secondary">${t('setup.tagline')}</div></div></div>
     <label class="field"><span>${t('settings.language')}</span>
       <select class="input" value=${form.language} onChange=${(e) => changeLanguage(e.target.value)}>
         ${Object.entries(LANGUAGES).map(([k, v]) => html`<option key=${k} value=${k}>${v}</option>`)}</select></label>

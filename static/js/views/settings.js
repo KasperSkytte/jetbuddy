@@ -389,8 +389,8 @@ export function Settings() {
     <${Data} />
     <${LoginSection} />
     <section class="card" style="margin-bottom:12px">
-      <div class="row"><${Icon} name="info" /><strong class="spacer">Jetbuddy ${household.version}</strong></div>
-      <p class="small secondary" style="margin:8px 0 0">${t('settings.about')} <a href="https://github.com/kasperskytte/jetbuddy" target="_blank" rel="noopener">GitHub</a></p>
+      <div class="row"><${Icon} name="info" /><strong class="spacer">Sparegrisen ${household.version}</strong></div>
+      <p class="small secondary" style="margin:8px 0 0">${t('settings.about')} <a href="https://github.com/kasperskytte/sparegrisen" target="_blank" rel="noopener">GitHub</a></p>
     </section>
   </div>`;
 }

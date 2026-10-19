@@ -10,14 +10,13 @@ What a sync does, per connected bank account:
   - stores the current balance;
   - stores booked transactions (pending ones change ids when they book);
   - sorts new transactions onto budget items using the saved rules;
-  - for an account linked to one of Jetbuddy's accounts, works out the real
+  - for an account linked to one of the accounts in Sparegrisen, works out the real
     balance at the end of every completed month it has transactions for, and
     saves those as the account's actual balances.
 """
 
 import hashlib
 import json
-import os
 import re
 import secrets
 import sqlite3
@@ -38,9 +37,10 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.x509.oid import NameOID
 
 from . import db
+from . import env as getenv
 
-API_URL = os.environ.get("JETBUDDY_EB_API_URL", "https://api.enablebanking.com")
-SYNC_HOURS = float(os.environ.get("JETBUDDY_BANK_SYNC_HOURS", "6"))
+API_URL = getenv("EB_API_URL", "https://api.enablebanking.com")
+SYNC_HOURS = float(getenv("BANK_SYNC_HOURS", "6"))
 # How long to ask the bank for access. Banks cap it (often at 90 or 180 days);
 # the shorter of the two is used.
 CONSENT_DAYS = 180
@@ -78,7 +78,7 @@ class BankError(Exception):
 # in the budget's own folder (never in backups).
 #
 # Enable Banking checks every request against a public certificate registered
-# with the application. Jetbuddy can make the key pair itself: the private key
+# with the application. Sparegrisen can make the key pair itself: the private key
 # never leaves the server, and the user pastes the certificate into Enable
 # Banking's form.
 
@@ -115,7 +115,7 @@ def new_certificate(bdir: Path) -> str:
     if f["pending_key"].exists() and f["pending_cert"].exists():
         return f["pending_cert"].read_text()
     key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Jetbuddy")])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Sparegrisen")])
     now = datetime.now(timezone.utc)
     cert = (
         x509.CertificateBuilder()
@@ -433,7 +433,7 @@ _SAVINGS = re.compile(r"opspar|spare|savings|saving|sparkonto|børneopsparing", 
 
 
 def ensure_accounts(conn: sqlite3.Connection) -> None:
-    """Every bank account is an account in Jetbuddy, its own one: the bank
+    """Every bank account is an account in Sparegrisen, its own one: the bank
     decides which accounts there are, and the person names them. A new bank
     account takes over a manual account with the same name, or the free
     budget or savings account of its kind (the ones set up with the
@@ -474,7 +474,7 @@ def ensure_accounts(conn: sqlite3.Connection) -> None:
 
 def remove_bank_account(conn: sqlite3.Connection, bank_account_id: int) -> None:
     """Erase a bank account that is gone upstream: its transactions, and the
-    account in Jetbuddy with its balances. Items that moved money to it keep
+    account in Sparegrisen with its balances. Items that moved money to it keep
     their amounts but no longer point at an account."""
     row = conn.execute("SELECT account_id FROM bank_accounts WHERE id = ?", (bank_account_id,)).fetchone()
     conn.execute("DELETE FROM bank_accounts WHERE id = ?", (bank_account_id,))  # transactions go with it
@@ -601,7 +601,7 @@ def balance_day_mode(conn: sqlite3.Connection) -> str:
 
 
 def update_month_balances(conn: sqlite3.Connection) -> None:
-    """Save the real end-of-month balance of every Jetbuddy account that has
+    """Save the real end-of-month balance of every Sparegrisen account that has
     bank accounts linked, for each month their transactions cover whose
     measuring day (see measure_day) is over. A balance typed in by hand is
     left alone."""
@@ -846,7 +846,7 @@ def month_transactions(conn: sqlite3.Connection, year: int, month: int) -> list[
 
 
 def balance_history(conn: sqlite3.Connection, account_id: int, year: int) -> list[dict]:
-    """The balance of a Jetbuddy account after every bank transaction in year,
+    """The balance of an account after every bank transaction in year,
     oldest first, worked back from the bank's latest balance. Empty when no
     bank account with a balance is linked."""
     linked = conn.execute(

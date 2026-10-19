@@ -23,7 +23,7 @@ export function Login({ canCreate, onDone, onCreate }) {
   };
   return html`<div class="center-page"><div class="center-card">
     <form class="card stack" onSubmit=${submit}>
-      <div class="logo-row"><${Logo} size=${44} /><span class="name">Jetbuddy</span></div>
+      <div class="logo-row"><${Logo} size=${44} /><span class="name">Sparegrisen</span></div>
       <label class="field"><span>${t('login.username')}</span>
         <input class="input" name="username" autocomplete="username" autocapitalize="none" spellcheck="false"
           value=${login} onInput=${(e) => setLogin(e.target.value)} autofocus /></label>

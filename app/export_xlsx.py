@@ -17,7 +17,7 @@ from . import banking, calc
 TEXT = {
     "en": {
         "summary": "Summary", "budget": "Budget", "actual": "Budget and actual", "balances": "Account balances",
-        "title": "Budget {year}", "made": "Made {date} with Jetbuddy. Amounts in {currency}.",
+        "title": "Budget {year}", "made": "Made {date} with Sparegrisen. Amounts in {currency}.",
         "household": "Household", "key_figures": "Key figures",
         "per_month": "Per month (avg.)", "per_year": "Whole year",
         "income": "Income", "expenses": "Expenses", "total_income": "Total income", "total_expenses": "Total expenses",
@@ -39,7 +39,7 @@ TEXT = {
     },
     "da": {
         "summary": "Oversigt", "budget": "Budget", "actual": "Budget og faktisk", "balances": "Kontosaldi",
-        "title": "Budget {year}", "made": "Udarbejdet {date} med Jetbuddy. Beløb i {currency}.",
+        "title": "Budget {year}", "made": "Udarbejdet {date} med Sparegrisen. Beløb i {currency}.",
         "household": "Husstand", "key_figures": "Nøgletal",
         "per_month": "Pr. måned (gns.)", "per_year": "Hele året",
         "income": "Indtægter", "expenses": "Udgifter", "total_income": "Indtægter i alt", "total_expenses": "Udgifter i alt",

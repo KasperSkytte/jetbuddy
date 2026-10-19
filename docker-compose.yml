@@ -1,9 +1,9 @@
 services:
-  jetbuddy:
-    image: ghcr.io/kasperskytte/jetbuddy:latest
+  sparegrisen:
+    image: ghcr.io/kasperskytte/sparegrisen:latest
     # Or build it yourself from this folder:
     # build: .
-    container_name: jetbuddy
+    container_name: sparegrisen
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -12,4 +12,4 @@ services:
     # environment:
     #   # Stop new budgets being created from the login page (e.g. if the
     #   # server is reachable from the internet).
-    #   JETBUDDY_ALLOW_NEW_BUDGETS: "false"
+    #   SPAREGRISEN_ALLOW_NEW_BUDGETS: "false"

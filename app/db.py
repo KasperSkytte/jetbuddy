@@ -4,18 +4,19 @@ One server can hold several budgets (households), each with its own login.
 A small server database lists the budgets; every budget has a folder of its
 own with its database and its bank key, so budgets never see each other.
 
-    data/jetbuddy.db                  the budgets and their logins
+    data/sparegrisen.db                  the budgets and their logins
     data/budgets/<id>/budget.db       one budget
     data/budgets/<id>/enablebanking.* its bank connection key, if any
 """
 
 import json
-import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-DATA_DIR = Path(os.environ.get("JETBUDDY_DATA_DIR", "./data"))
+from . import env as getenv
+
+DATA_DIR = Path(getenv("DATA_DIR", "./data"))
 
 # Each entry migrates the schema from version i to i+1. Never edit a released
 # migration; append a new one.
@@ -234,7 +235,14 @@ def budget_dir(budget_id: int) -> Path:
 
 
 def open_server() -> sqlite3.Connection:
-    conn = connect(DATA_DIR / "jetbuddy.db")
+    path = DATA_DIR / "sparegrisen.db"
+    if not path.exists() and (DATA_DIR / "jetbuddy.db").exists():
+        # The app used to be called Jetbuddy: carry on with its data.
+        for suffix in ("", "-wal", "-shm"):
+            old = DATA_DIR / f"jetbuddy.db{suffix}"
+            if old.exists():
+                old.rename(DATA_DIR / f"sparegrisen.db{suffix}")
+    conn = connect(path)
     migrate(conn, SERVER_MIGRATIONS)
     return conn
 

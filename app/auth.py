@@ -13,8 +13,9 @@ import threading
 import time
 
 from . import db
+from . import env as getenv
 
-COOKIE = "jetbuddy_session"
+COOKIE = "sparegrisen_session"
 SESSION_SECONDS = 365 * 24 * 3600
 MIN_PASSWORD = 8
 
@@ -48,7 +49,7 @@ def burn_time(password: str) -> None:
 
 
 def _secret() -> bytes:
-    env = os.environ.get("JETBUDDY_SECRET")
+    env = getenv("SECRET")
     if env:
         return env.encode()
     path = db.DATA_DIR / "secret.key"
@@ -109,4 +110,4 @@ def record_failure(client: str) -> None:
 
 
 def allow_new_budgets() -> bool:
-    return os.environ.get("JETBUDDY_ALLOW_NEW_BUDGETS", "true").lower() not in ("0", "false", "no")
+    return getenv("ALLOW_NEW_BUDGETS", "true").lower() not in ("0", "false", "no")

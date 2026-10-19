@@ -2,7 +2,7 @@ FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    JETBUDDY_DATA_DIR=/data
+    SPAREGRISEN_DATA_DIR=/data
 
 WORKDIR /app
 COPY requirements.txt .
@@ -12,8 +12,8 @@ COPY app ./app
 COPY static ./static
 
 # Run as an unprivileged user; /data is where the database lives.
-RUN useradd --uid 1000 --create-home jetbuddy && mkdir -p /data && chown jetbuddy:jetbuddy /data
-USER jetbuddy
+RUN useradd --uid 1000 --create-home sparegrisen && mkdir -p /data && chown sparegrisen:sparegrisen /data
+USER sparegrisen
 VOLUME /data
 EXPOSE 8000
 

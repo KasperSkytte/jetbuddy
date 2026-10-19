@@ -39,7 +39,7 @@ function shortDate(iso) {
 
 // ------------------------------------------------------------------ setup
 
-const PROJECT_URL = 'https://github.com/kasperskytte/jetbuddy';
+const PROJECT_URL = 'https://github.com/kasperskytte/sparegrisen';
 
 async function copyText(text) {
   try {
@@ -128,7 +128,7 @@ function SetupGuide({ status, onDone }) {
         <dl class="form-fields">
           <dt>Environment</dt><dd><strong>Production</strong><div class="small muted">${t('bank.fEnv')}</div></dd>
           <dt>${t('bank.fKeyLabel')}</dt><dd><strong>Generate outside the browser and import public certificate</strong></dd>
-          <dt>Application name</dt><dd><${CopyValue} value="Jetbuddy" /></dd>
+          <dt>Application name</dt><dd><${CopyValue} value="Sparegrisen" /></dd>
           <dt>Allowed redirect URLs</dt><dd><${CopyValue} value=${status.redirect_url} mono />
             <div class="small muted">${t('bank.fRedirect')}</div>
             ${http && html`<div class="small bad">${t('bank.fRedirectHttp')}</div>`}</dd>

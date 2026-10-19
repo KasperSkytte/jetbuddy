@@ -51,13 +51,25 @@ export function Icon({ name, size = 22, stroke = 1.8 }) {
 }
 
 export function Logo({ size = 34 }) {
-  // A wallet with a card sticking out.
+  // A piggy bank with a coin going in.
   return html`<svg width=${size} height=${size} viewBox="0 0 64 64" aria-hidden="true">
     <rect width="64" height="64" rx="16" fill="var(--accent)" />
-    <rect x="17" y="12" width="30" height="19" rx="3.5" fill="#fff" stroke="var(--accent)" stroke-width="3" transform="rotate(-14 32 22)"/>
-    <rect x="11" y="23" width="42" height="29" rx="7" fill="#fff" stroke="var(--accent)" stroke-width="3"/>
-    <rect x="36" y="32.5" width="17" height="11" rx="5.5" fill="var(--accent)"/>
-    <circle cx="42.5" cy="38" r="2.4" fill="#fff"/>
+    <g fill="#fff">
+      <circle cx="31" cy="13.5" r="5.5" />
+      <path d="M19.5 27.5l1.6-9.5 8 6.5z" />
+      <ellipse cx="30.5" cy="37" rx="19" ry="14" />
+      <rect x="45" y="31.5" width="9.5" height="10.5" rx="3.5" />
+      <rect x="17.5" y="44" width="6" height="9.5" rx="2.5" />
+      <rect x="35.5" y="44" width="6" height="9.5" rx="2.5" />
+    </g>
+    <path d="M12.5 36.5c-3.2-.4-4.6-3.2-3-5.2" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" />
+    <g fill="var(--accent)">
+      <rect x="29.3" y="10.5" width="3.4" height="6" rx="1.2" />
+      <rect x="25" y="25.3" width="11" height="3" rx="1.5" />
+      <circle cx="41" cy="32" r="1.9" />
+      <circle cx="49.3" cy="36" r="1.1" />
+      <circle cx="51.8" cy="36" r="1.1" />
+    </g>
   </svg>`;
 }
 

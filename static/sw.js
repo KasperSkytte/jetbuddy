@@ -1,7 +1,7 @@
 // Network first, so an update to the server shows up right away; the cache
 // only steps in when the server can't be reached, so the app still opens
 // (read-only) away from home. The API is never cached.
-const CACHE = 'jetbuddy-v1';
+const CACHE = 'sparegrisen-v1';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => {

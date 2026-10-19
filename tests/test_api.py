@@ -185,17 +185,17 @@ def test_budgets_are_separate(client, household):
 
 
 def test_new_budgets_can_be_turned_off(client, household, monkeypatch):
-    monkeypatch.setenv("JETBUDDY_ALLOW_NEW_BUDGETS", "false")
+    monkeypatch.setenv("SPAREGRISEN_ALLOW_NEW_BUDGETS", "false")
     assert client.get("/api/session").json()["can_create"] is False
     assert new_budget(client, login="other").status_code == 403
 
 
 def test_change_password_logs_out_other_devices(client, household):
-    other_device = client.cookies.get("jetbuddy_session")
+    other_device = client.cookies.get("sparegrisen_session")
     r = client.put("/api/login-details", json={"current_password": PASSWORD, "password": "new password!", "login": "hansen"})
     assert r.status_code == 200
     assert client.get("/api/state").status_code == 200  # this device stays in
-    client.cookies.set("jetbuddy_session", other_device)
+    client.cookies.set("sparegrisen_session", other_device)
     assert client.get("/api/state").status_code == 401
     assert client.post("/api/login", json={"login": "hansen", "password": "new password!"}).status_code == 200
     bad = client.put("/api/login-details", json={"current_password": "wrong", "password": "whatever123"})
@@ -455,3 +455,16 @@ def test_measure_day():
     assert measure_day(2026, 10, "last") == date(2026, 10, 31)
     assert measure_day(2026, 10, "before_payday") == date(2026, 10, 29)  # last weekday Fri 30th
     assert measure_day(2026, 5, "before_payday") == date(2026, 5, 28)  # 31st is a Sunday: Friday 29th
+
+
+def test_data_from_the_old_name_is_kept(tmp_path, monkeypatch):
+    """Sparegrisen used to be called Jetbuddy: its data file is taken over."""
+    monkeypatch.setattr(db, "DATA_DIR", tmp_path)
+    old = db.connect(tmp_path / "jetbuddy.db")
+    db.migrate(old, db.SERVER_MIGRATIONS)
+    old.execute("INSERT INTO budgets (name, login, password_hash, created) VALUES ('Hjem', 'hjem', 'x', 0)")
+    old.commit()
+    old.close()
+    conn = db.open_server()
+    assert conn.execute("SELECT login FROM budgets").fetchone()[0] == "hjem"
+    assert not (tmp_path / "jetbuddy.db").exists()

@@ -1,7 +1,7 @@
-# Jetbuddy
+# Sparegrisen
 
-A family budget you run yourself. Write down what comes in and what goes out,
-for each person in the household, and Jetbuddy keeps track of it month by month
+*Danish for “the piggy bank”.* A family budget you run yourself. Write down what comes in and what goes out,
+for each person in the household, and Sparegrisen keeps track of it month by month
 and year by year, with the sums and charts done for you.
 
 It's made for the phone first, works just as well on a computer, and your data
@@ -26,12 +26,23 @@ stays on your own server.
   the money goes, per person and per category, and how it changes over the years.
 - **Bank sync (optional).** Your bank accounts and their real balances show up
   by themselves, and you see what was actually paid next to what you planned.
+- **Reconcile each month.** See the bank's transactions that aren't in the
+  budget yet, by account and payment type (card, Betalingsservice…), and the
+  items where the bank paid more or less than planned. Put a payment on an item
+  once and the same payment is sorted by itself from then on, so only what
+  changed is left to look at.
+- **Accounts as they are used:** one budget account everything flows through,
+  savings, and expense accounts (money moved there is spent from there). Read
+  month-end balances on the last day, or the day before payday so the salary
+  doesn't make every account look full.
 - **Checks the numbers.** Amounts that look 10, 100 or 1000 times off, the
   usual result of a comma read as a dot, are flagged with a one-tap fix, and
   the overview tells you when the totals can't be trusted yet.
 - **Export to Excel**, and import your old budget spreadsheet.
 - One login per household. Several households can share a server.
-- English and Danish, any currency, comma or dot decimals, light and dark mode.
+- Sort items by amount, name or category.
+- English and Danish, any currency, comma or dot decimals (or whole numbers
+  only), light and dark mode.
 
 ## Getting started
 
@@ -40,8 +51,8 @@ You need a computer that's always on, like a home server or a Raspberry Pi, with
 
 ```yaml
 services:
-  jetbuddy:
-    image: ghcr.io/kasperskytte/jetbuddy:latest
+  sparegrisen:
+    image: ghcr.io/kasperskytte/sparegrisen:latest
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -54,29 +65,32 @@ your budget. You pick a budget name and a password that the whole household
 shares.
 
 **On your phone**, open the same address and add it to your home screen: the
-app shows you how under **Settings → Install as app**. Jetbuddy then opens like
+app shows you how under **Settings → Install as app**. Sparegrisen then opens like
 a normal app. On Android this works best over https, so if you have a reverse
-proxy (Caddy, Traefik, Nginx Proxy Manager…), put Jetbuddy behind it.
+proxy (Caddy, Traefik, Nginx Proxy Manager…), put Sparegrisen behind it.
 
 ## Connecting your bank
 
-Jetbuddy can read balances and transactions from your bank through
+Sparegrisen can read balances and transactions from your bank through
 [Enable Banking](https://enablebanking.com), which works with most banks in
-Europe and is free when you only connect your own accounts. Jetbuddy can only
+Europe and is free when you only connect your own accounts. Sparegrisen can only
 read; it can never move money.
 
 Setting it up takes about ten minutes, and the app walks you through every step
-under **Settings → Bank**. After that, Jetbuddy syncs by itself a few times a
-day. Every few months your bank asks you to log in again, and Jetbuddy tells you
+under **Settings → Bank**. After that, Sparegrisen syncs by itself a few times a
+day. Every few months your bank asks you to log in again, and Sparegrisen tells you
 when.
 
 Your bank accounts then appear under **Settings → Accounts**, where you can give
-them your own names. Which accounts Jetbuddy sees is decided at the bank: leave
+them your own names. Which accounts Sparegrisen sees is decided at the bank: leave
 an account out there (or unlink it in Enable Banking) and it disappears from
-Jetbuddy with all its data.
+Sparegrisen with all its data.
 
-Transactions show up in the month view, where you put each one on a budget item.
-Tick "do the same next time" and future ones sort themselves.
+Each month, **Afstem/Reconcile** on the Month page shows the transactions that
+aren't on the budget yet and the items where the bank and the budget differ.
+Put a transaction on an item and leave "Do it automatically from now on" on:
+the same payment, with the same amount, is sorted by itself next time. When a
+transaction has exactly an item's amount, it is also offered right at the item.
 
 ## Moving from a spreadsheet
 
@@ -97,16 +111,19 @@ Most people won't need these. Set them under `environment:` in
 
 | Setting | What it does |
 |---|---|
-| `JETBUDDY_ALLOW_NEW_BUDGETS=false` | Stops others from creating new budgets on the login page. Use it if your server can be reached from the internet. |
-| `JETBUDDY_BANK_SYNC_HOURS=6` | How often to sync with the bank. `0` turns automatic syncing off. |
-| `JETBUDDY_PUBLIC_URL` | Your Jetbuddy address, e.g. `https://budget.example.com`, if the bank sends you back to the wrong address. |
+| `SPAREGRISEN_ALLOW_NEW_BUDGETS=false` | Stops others from creating new budgets on the login page. Use it if your server can be reached from the internet. |
+| `SPAREGRISEN_BANK_SYNC_HOURS=6` | How often to sync with the bank. `0` turns automatic syncing off. |
+| `SPAREGRISEN_PUBLIC_URL` | The address of your Sparegrisen, e.g. `https://budget.example.com`, if the bank sends you back to the wrong address. |
+
+Sparegrisen used to be called Jetbuddy. An older install keeps working: its data
+is taken over on the first start, and `JETBUDDY_…` settings are still read.
 
 ## Development
 
 ```bash
 python -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
-JETBUDDY_DATA_DIR=./data .venv/bin/uvicorn app.main:app --reload
+SPAREGRISEN_DATA_DIR=./data .venv/bin/uvicorn app.main:app --reload
 .venv/bin/pytest
 ```
 
