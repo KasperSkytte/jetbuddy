@@ -610,6 +610,27 @@ def measure_day(y: int, m: int, mode: str = "last") -> date:
     return end - timedelta(days=1)
 
 
+def budget_month(day: str, mode: str = "last") -> tuple[int, int]:
+    """The budget month a transaction booked on day (ISO) belongs to. With
+    'before_payday' a month runs from the previous month's last weekday, when
+    the salary comes, to the day before its own: the salary paid on 30
+    September is October's."""
+    d = date.fromisoformat(day[:10])
+    if mode == "before_payday" and d > measure_day(d.year, d.month, mode):
+        return (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
+    return d.year, d.month
+
+
+def regroup_transactions(conn: sqlite3.Connection) -> None:
+    """Put every transaction in its budget month again, after the setting changed."""
+    mode = balance_day_mode(conn)
+    for r in conn.execute("SELECT id, booking_date, item_id FROM bank_transactions").fetchall():
+        y, m = budget_month(r["booking_date"], mode)
+        conn.execute("UPDATE bank_transactions SET year = ?, month = ? WHERE id = ?", (y, m, r["id"]))
+        if r["item_id"] is not None:
+            conn.execute("INSERT OR IGNORE INTO item_years (item_id, year) VALUES (?, ?)", (r["item_id"], y))
+
+
 def balance_day_mode(conn: sqlite3.Connection) -> str:
     r = conn.execute("SELECT value FROM settings WHERE key = 'balance_day'").fetchone()
     return "before_payday" if r and json.loads(r[0]) == "before_payday" else "last"
@@ -737,6 +758,7 @@ def _sync(conn: sqlite3.Connection, bdir: Path, psu: dict | None) -> dict:
 
 
 def _sync_account(conn: sqlite3.Connection, eb: EnableBanking, ba, psu: dict | None) -> list[int]:
+    day_mode = balance_day_mode(conn)
     balance = pick_balance(eb.balances(ba["uid"], psu))
     if ba["synced_to"]:
         date_from = (date.fromisoformat(ba["synced_to"]) - timedelta(days=OVERLAP_DAYS)).isoformat()
@@ -752,6 +774,7 @@ def _sync_account(conn: sqlite3.Connection, eb: EnableBanking, ba, psu: dict | N
     with db.transaction(conn):
         for tx, ext_id in zip(booked, _ext_ids(booked)):
             day = transaction_date(tx)[:10]
+            y, m = budget_month(day, day_mode)
             counterparty, text = transaction_texts(tx)
             cents = transaction_cents(tx)
             existing = conn.execute(
@@ -760,13 +783,13 @@ def _sync_account(conn: sqlite3.Connection, eb: EnableBanking, ba, psu: dict | N
             if existing:
                 conn.execute(
                     "UPDATE bank_transactions SET booking_date = ?, year = ?, month = ?, cents = ?, counterparty = ?, text = ? WHERE id = ?",
-                    (day, int(day[:4]), int(day[5:7]), cents, counterparty, text, existing[0]),
+                    (day, y, m, cents, counterparty, text, existing[0]),
                 )
             else:
                 cur = conn.execute(
                     "INSERT INTO bank_transactions (bank_account_id, ext_id, booking_date, year, month, cents, counterparty, text) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (ba["id"], ext_id, day, int(day[:4]), int(day[5:7]), cents, counterparty, text),
+                    (ba["id"], ext_id, day, y, m, cents, counterparty, text),
                 )
                 new_ids.append(cur.lastrowid)
         days = [transaction_date(tx)[:10] for tx in booked]

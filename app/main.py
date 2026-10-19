@@ -478,8 +478,9 @@ class SettingsIn(BaseModel):
     decimal_both: Literal["last", "invalid"] | None = None
     # Keep decimals, round them off, or accept whole numbers only.
     decimals: Literal["keep", "nearest", "up", "down", "only"] | None = None
-    # When a month's balance is read: its last day, or the day before its
-    # last weekday (before the salary comes in).
+    # What a budget month is: the calendar month ('last'), or from the
+    # previous month's last weekday, when the salary comes, to the day before
+    # its own ('before_payday'). Month-end balances are read on its last day.
     balance_day: Literal["last", "before_payday"] | None = None
     currency: str | None = Field(None, max_length=3)
 
@@ -500,6 +501,8 @@ def update_settings(body: SettingsIn, request: Request, conn: sqlite3.Connection
         body.household = name
     with db.transaction(conn):
         set_settings(conn, body.model_dump(exclude_none=True))
+        if body.balance_day is not None:
+            banking.regroup_transactions(conn)  # into their budget months the new way
         if body.decimals is not None or body.balance_day is not None:
             banking.update_month_balances(conn)  # balances from the bank, rounded or read the new way
     return get_settings(conn)

@@ -423,3 +423,23 @@ def test_taking_a_transaction_off_an_item_sticks(client, household, bank):
     rent = next(t for t in month() if t["text"] == "Husleje")
     assert client.post(f"/api/bank/transactions/{rent['id']}/not/{netflix['id']}").status_code == 200
     assert netflix["id"] in next(t for t in month() if t["id"] == rent["id"])["not_items"]
+
+
+def test_budget_month_from_payday():
+    from app.banking import budget_month
+    assert budget_month("2026-09-30", "last") == (2026, 9)
+    assert budget_month("2026-09-30", "before_payday") == (2026, 10)  # Wednesday 30th: the last weekday
+    assert budget_month("2026-09-29", "before_payday") == (2026, 9)
+    assert budget_month("2026-12-31", "before_payday") == (2027, 1)
+    assert budget_month("2026-05-29", "before_payday") == (2026, 6)  # Friday 29th, the 30th–31st are a weekend
+
+
+def test_changing_the_budget_month_moves_transactions(client, household, bank):
+    connect(client)
+    y, m = LAST_MONTH_END.year, LAST_MONTH_END.month
+    rows = lambda: {t["text"] or t["counterparty"]: t for t in client.get("/api/bank/transactions", params={"year": y, "month": m}).json()}
+    assert "Husleje" in rows()  # booked three days before the end of last month
+    client.put("/api/settings", json={"balance_day": "before_payday"})
+    from app.banking import budget_month
+    expected = budget_month((LAST_MONTH_END - timedelta(days=3)).isoformat(), "before_payday")
+    assert ("Husleje" in rows()) == (expected == (y, m))
