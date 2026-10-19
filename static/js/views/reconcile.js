@@ -8,7 +8,7 @@ import { useStore } from '../store.js';
 import { t } from '../i18n.js';
 import { money, amount, signedMoney, monthNames } from '../fmt.js';
 import { Sheet, Icon, Dot, Chips, toast, toastError, useWide } from '../ui.js';
-import { memberById, memberColor, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
+import { members, memberById, memberColor, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
 import { AssignView } from './bank.js';
 
 export function txName(tx) {
@@ -164,7 +164,11 @@ function ItemLine({ row, onOpen }) {
  * to what was paid, which is a change of plan and says so.
  */
 export function ItemBankSheet({ item, year, month, txs, items, onClose, onChanged }) {
+  const { household } = useStore();
   const act = useAct(onChanged);
+  const moveTo = (memberId) => act(() => api.patch(`/api/items/${item.id}?year=${year}`, { member_id: memberId }),
+    t('reconcile.movedItem', { name: item.name, member: memberById(household, memberId)?.name }),
+    () => api.patch(`/api/items/${item.id}?year=${year}`, { member_id: item.member_id }));
   const long = monthNames('long');
   const on = txs.filter((x) => x.item_id === item.id);
   const planned = item.amounts[month - 1];
@@ -178,6 +182,9 @@ export function ItemBankSheet({ item, year, month, txs, items, onClose, onChange
     () => api.put(`/api/items/${item.id}/amount`, { year, month, amount: planned ?? null }));
   return html`<${Sheet} title=${item.name} onClose=${onClose}>
     <div class="stack">
+      <label class="field"><span>${t('item.whose')}</span>
+        <select class="input" value=${item.member_id} onChange=${(e) => moveTo(Number(e.target.value))}>
+          ${members(household).map((m) => html`<option key=${m.id} value=${m.id}>${m.name}</option>`)}</select></label>
       <div class="sum-strip" style="grid-template-columns:repeat(3,1fr)">
         <div><div class="label">${t('reconcile.budget')}</div><div class="value">${planned != null ? amount(planned) : '–'}</div></div>
         <div><div class="label">${t('reconcile.bank')}</div><div class="value">${actual != null ? amount(actual) : '–'}</div></div>

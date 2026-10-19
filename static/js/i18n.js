@@ -6,7 +6,7 @@ export const LANGUAGES = { en: 'English', da: 'Dansk' };
 const en = {
   'nav.label': 'Main',
   'nav.overview': 'Overview',
-  'nav.month': 'Month',
+  'nav.month': 'Reconcile',
   'nav.plan': 'Budget',
   'nav.trends': 'Trends',
   'nav.settings': 'Settings',
@@ -115,7 +115,7 @@ const en = {
   'item.name': 'Name',
   'item.namePlaceholder': 'e.g. Rent, Salary, Netflix',
   'item.type': 'Type',
-  'item.whose': 'Whose',
+  'item.whose': 'Belongs to',
   'item.every1': 'Every month',
   'item.every2': 'Every 2 months',
   'item.every3': 'Every quarter',
@@ -606,12 +606,13 @@ const en = {
   'reconcile.setBudgetHint': 'The bank paid something else than budgeted. Usually that’s worth noticing, not hiding: change the budget only if the plan itself was wrong.',
   'reconcile.setBudget': 'Set {month}’s budget to {amount}',
   'reconcile.budgetSet': 'Budget set to {amount}',
+  'reconcile.movedItem': '{name} now belongs to {member}',
 };
 
 const da = {
   'nav.label': 'Hovedmenu',
   'nav.overview': 'Overblik',
-  'nav.month': 'Måned',
+  'nav.month': 'Afstemning',
   'nav.plan': 'Budget',
   'nav.trends': 'Udvikling',
   'nav.settings': 'Indstillinger',
@@ -720,7 +721,7 @@ const da = {
   'item.name': 'Navn',
   'item.namePlaceholder': 'fx Husleje, Løn, Netflix',
   'item.type': 'Type',
-  'item.whose': 'Hvis',
+  'item.whose': 'Hører til',
   'item.every1': 'Hver måned',
   'item.every2': 'Hver 2. måned',
   'item.every3': 'Hvert kvartal',
@@ -1210,6 +1211,7 @@ const da = {
   'reconcile.setBudgetHint': 'Banken har betalt noget andet end budgetteret. Som regel er det værd at lægge mærke til, ikke at skjule: ret kun budgettet, hvis selve planen var forkert.',
   'reconcile.setBudget': 'Sæt budgettet for {month} til {amount}',
   'reconcile.budgetSet': 'Budgettet er sat til {amount}',
+  'reconcile.movedItem': '{name} hører nu til {member}',
 };
 
 const DICTS = { en, da };
