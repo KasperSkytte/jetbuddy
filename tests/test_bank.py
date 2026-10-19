@@ -354,11 +354,11 @@ def test_bank_accounts_are_linked_automatically(client, household, bank):
     connect(client)
     state = client.get("/api/state").json()
     names = {a["id"]: a["name"] for a in state["accounts"]}
-    linked = {a["name"]: (names.get(a["account_id"]), a["track"]) for a in client.get("/api/bank/status").json()["accounts"]}
+    linked = {a["name"]: (names.get(a["account_id"]), a["budget"]) for a in client.get("/api/bank/status").json()["accounts"]}
     # The test household's accounts are called "Budget account" and "Savings".
     assert linked["Budgetkonto"] == ("Budget account", True)
     assert linked["Opsparing"] == ("Savings", False)
-    assert linked["Fælleskonto"] == ("Fælleskonto", True)
+    assert linked["Fælleskonto"] == ("Fælleskonto", False)  # an expense account: not reconciled
     assert [a["name"] for a in state["accounts"]] == ["Budget account", "Savings", "Fælleskonto"]
 
 
@@ -391,3 +391,35 @@ def test_payment_type_from_the_text():
     assert banking.payment_type("BS Ørsted Salg & Service") == ("Betalingsservice", "Ørsted Salg & Service")
     assert banking.payment_type("BSA Biler") == (None, "BSA Biler")  # a name, not a code
     assert banking.suggest_pattern("", "BS Husleje oktober") == "Husleje"
+
+
+def test_reconciling_uses_the_budget_account_by_its_own_name(client, household, bank):
+    main = next(a for a in household["accounts"] if a["kind"] == "main")
+    connect(client)
+    client.patch(f"/api/accounts/{main['id']}", json={"name": "Fælles", "kind": "main"})
+    txs = client.get("/api/bank/transactions", params={"year": TODAY.year, "month": TODAY.month}).json()
+    assert {t["account_name"] for t in txs} == {"Fælles"}
+    # Another account made the budget account: the old one's transactions are no longer reconciled.
+    savings = next(a for a in household["accounts"] if a["kind"] == "savings")
+    client.patch(f"/api/accounts/{savings['id']}", json={"kind": "main"})
+    assert client.get("/api/bank/transactions", params={"year": TODAY.year, "month": TODAY.month}).json() == []
+
+
+def test_taking_a_transaction_off_an_item_sticks(client, household, bank):
+    alex = next(m for m in household["members"] if m["name"] == "Alex")
+    y, m = LAST_MONTH_END.year, LAST_MONTH_END.month
+    netflix = client.post("/api/items", json={"member_id": alex["id"], "kind": "expense", "name": "Netflix", "year": y,
+                                               "amounts": [129 if i == m - 1 else None for i in range(12)]}).json()
+    connect(client)
+    month = lambda: client.get("/api/bank/transactions", params={"year": y, "month": m}).json()
+    nflx = next(t for t in month() if t["counterparty"] == "NETFLIX.COM")
+    client.put(f"/api/bank/transactions/{nflx['id']}", json={"item_id": netflix["id"], "rule": "netflix", "rule_amount": True})
+    # Taken off again: the rule that put it there goes, and it isn't suggested for that item any more.
+    client.put(f"/api/bank/transactions/{nflx['id']}", json={"item_id": None})
+    assert client.get("/api/bank/status").json()["rules"] == []
+    again = next(t for t in month() if t["id"] == nflx["id"])
+    assert again["item_id"] is None and netflix["id"] in again["not_items"] and netflix["id"] not in again["suggestions"]
+    # Turning down a suggestion on another transaction.
+    rent = next(t for t in month() if t["text"] == "Husleje")
+    assert client.post(f"/api/bank/transactions/{rent['id']}/not/{netflix['id']}").status_code == 200
+    assert netflix["id"] in next(t for t in month() if t["id"] == rent["id"])["not_items"]

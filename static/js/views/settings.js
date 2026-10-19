@@ -265,14 +265,12 @@ function AccountSheet({ account, bankAccount, onClose }) {
     name: account?.name || '', kind: account?.kind || (hasMain ? 'expense' : 'main'), color: account?.color ?? household.accounts.length % 8,
     archived: account?.archived || false, in_overview: account ? account.in_overview !== false : !hasMain,
   });
-  const [track, setTrack] = useState(bankAccount?.track ?? true);
   const balances = useData(account ? `/api/accounts/${account.id}/balances` : null);
   const long = monthNames('long');
   const set = (p) => setForm((f) => ({ ...f, ...p }));
   const save = () => run(async () => {
     if (isNew) await api.post('/api/accounts', form);
     else await api.patch(`/api/accounts/${account.id}`, form);
-    if (bankAccount && track !== bankAccount.track) await api.patch(`/api/bank/accounts/${bankAccount.id}`, { track });
   }, () => { bump(); onClose(); });
   const remove = () => {
     if (confirm(t('settings.confirmDeleteAccount', { name: account.name }))) run(() => api.del(`/api/accounts/${account.id}`), () => { bump(); onClose(); });
@@ -298,7 +296,6 @@ function AccountSheet({ account, bankAccount, onClose }) {
         <span class="hint">${t(KIND_HINT[form.kind])}</span>
         ${form.kind === 'main' && mainAccount && html`<span class="hint bad">${t('settings.oneMain', { name: mainAccount.name })}</span>`}</div>
       <${Switch} checked=${form.in_overview} onChange=${(in_overview) => set({ in_overview })} label=${t('settings.inOverview')} hint=${t('settings.inOverviewHint')} />
-      ${bankAccount && html`<${Switch} checked=${track} onChange=${setTrack} label=${t('bank.track')} hint=${t('bank.trackHint')} />`}
       <div class="field"><span>${t('common.color')}</span><${Swatches} value=${form.color} onChange=${(color) => set({ color })} /></div>
       ${!isNew && html`<${Switch} checked=${form.archived} onChange=${(archived) => set({ archived })} label=${t('settings.archived')} hint=${t('settings.accountArchivedHint')} />`}
       ${!isNew && !bankAccount && html`<div class="field"><span>${t('settings.actualBalances')}</span>

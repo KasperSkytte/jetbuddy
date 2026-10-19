@@ -910,7 +910,7 @@ def trends(conn: sqlite3.Connection = Conn):
 
 TABLES = [
     "settings", "members", "categories", "accounts", "account_balances", "items", "item_years", "amounts",
-    "bank_sessions", "bank_accounts", "bank_transactions", "bank_rules", "unreadable",
+    "bank_sessions", "bank_accounts", "bank_transactions", "bank_rules", "bank_not_item", "unreadable",
 ]
 
 
@@ -1141,12 +1141,13 @@ def bank_status(request: Request, conn: sqlite3.Connection = Conn):
     config = banking.get_config(bdir)
     sessions = rows(conn.execute("SELECT id, aspsp_name, aspsp_country, valid_until, status, last_sync, last_error FROM bank_sessions ORDER BY created"))
     accounts = rows(conn.execute(
-        "SELECT b.id, b.session_id, b.name, b.iban, b.currency, b.account_id, b.track, b.balance_cents, b.balance_date, "
+        "SELECT b.id, b.session_id, b.name, b.iban, b.currency, b.account_id, b.balance_cents, b.balance_date, "
+        f"{banking.IN_BUDGET} AS budget, "
         "b.history_from, b.synced_to, s.aspsp_name AS bank FROM bank_accounts b LEFT JOIN bank_sessions s ON s.id = b.session_id ORDER BY b.id"
     ))
     for a in accounts:
         a["balance"] = db.from_cents(a.pop("balance_cents"))
-        a["track"] = bool(a["track"])
+        a["budget"] = bool(a["budget"])  # the budget account's: its transactions are reconciled
     rules = rows(conn.execute(
         "SELECT r.*, i.name AS item_name FROM bank_rules r LEFT JOIN items i ON i.id = r.item_id ORDER BY r.pattern"
     ))
@@ -1155,7 +1156,7 @@ def bank_status(request: Request, conn: sqlite3.Connection = Conn):
         r["amount"] = db.from_cents(r.pop("amount_cents"))
     unsorted = conn.execute(
         "SELECT t.year, t.month, COUNT(*) AS n FROM bank_transactions t JOIN bank_accounts b ON b.id = t.bank_account_id "
-        "WHERE b.track = 1 AND t.item_id IS NULL AND t.ignored = 0 GROUP BY t.year, t.month"
+        f"WHERE {banking.IN_BUDGET} AND t.item_id IS NULL AND t.ignored = 0 GROUP BY t.year, t.month"
     ).fetchall()
     return {
         "configured": bool(config),
@@ -1258,18 +1259,6 @@ def bank_disconnect(id: str, request: Request, conn: sqlite3.Connection = Conn):
     return {"ok": True}
 
 
-class BankAccountIn(BaseModel):
-    track: bool
-
-
-@app.patch("/api/bank/accounts/{id}")
-def bank_account_update(id: int, body: BankAccountIn, conn: sqlite3.Connection = Conn):
-    """Whether this bank account's transactions are used in the budget."""
-    one(conn, "SELECT id FROM bank_accounts WHERE id = ?", (id,))
-    conn.execute("UPDATE bank_accounts SET track = ? WHERE id = ?", (int(body.track), id))
-    return {"ok": True}
-
-
 @app.get("/api/bank/transactions")
 def bank_transactions(year: int, month: int, conn: sqlite3.Connection = Conn):
     return banking.month_transactions(conn, year, month)
@@ -1291,6 +1280,8 @@ def bank_assign(id: int, body: AssignIn, conn: sqlite3.Connection = Conn):
         one(conn, "SELECT id FROM items WHERE id = ?", (body.item_id,))
     sorted_count = 0
     with db.transaction(conn):
+        if tx["item_id"] is not None and tx["item_id"] != body.item_id:
+            banking.not_item(conn, id, tx["item_id"])  # taken off an item: don't let a rule put it back
         banking._assign(conn, id, body.item_id, body.ignored and body.item_id is None, tx["year"])
         if body.rule and body.rule.strip() and (body.item_id is not None or body.ignored):
             conn.execute(
@@ -1299,6 +1290,15 @@ def bank_assign(id: int, body: AssignIn, conn: sqlite3.Connection = Conn):
             )
             sorted_count = banking.apply_rules(conn)
     return {"ok": True, "sorted": sorted_count}
+
+
+@app.post("/api/bank/transactions/{id}/not/{item_id}")
+def bank_not_item(id: int, item_id: int, conn: sqlite3.Connection = Conn):
+    """A suggestion turned down: this transaction is not that item."""
+    one(conn, "SELECT id FROM bank_transactions WHERE id = ?", (id,))
+    with db.transaction(conn):
+        banking.not_item(conn, id, item_id)
+    return {"ok": True}
 
 
 @app.delete("/api/bank/rules/{id}")

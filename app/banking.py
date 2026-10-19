@@ -439,8 +439,8 @@ def ensure_accounts(conn: sqlite3.Connection) -> None:
     budget or savings account of its kind (the ones set up with the
     household), or else becomes a new account named like at the bank: the
     budget account if there is none, else a savings or expense account.
-    Savings accounts follow the balance only; their transactions are
-    transfers in."""
+    Only the budget account's transactions are reconciled with the budget
+    (IN_BUDGET); the others follow the balance."""
     accounts = [dict(r) for r in conn.execute("SELECT * FROM accounts ORDER BY sort, id")]
     linked: set[int] = set()
     todo = []
@@ -468,8 +468,7 @@ def ensure_accounts(conn: sqlite3.Connection) -> None:
             match = {"id": cur.lastrowid, "name": name, "kind": kind, "archived": 0}
             accounts.append(match)
         linked.add(match["id"])
-        track = 0 if savings else 1
-        conn.execute("UPDATE bank_accounts SET account_id = ?, track = ? WHERE id = ?", (match["id"], track, ba["id"]))
+        conn.execute("UPDATE bank_accounts SET account_id = ? WHERE id = ?", (match["id"], ba["id"]))
 
 
 def remove_bank_account(conn: sqlite3.Connection, bank_account_id: int) -> None:
@@ -505,6 +504,22 @@ def _assign(conn, tx_id: int, item_id: int | None, ignored: bool, year: int) -> 
         conn.execute("INSERT OR IGNORE INTO item_years (item_id, year) VALUES (?, ?)", (item_id, year))
 
 
+def not_item(conn: sqlite3.Connection, tx_id: int, item_id: int) -> None:
+    """Remember that a transaction is not this item, and drop the rules that
+    would put it there (they would on the next sync)."""
+    conn.execute("INSERT OR IGNORE INTO bank_not_item (transaction_id, item_id) VALUES (?, ?)", (tx_id, item_id))
+    tx = conn.execute("SELECT * FROM bank_transactions WHERE id = ?", (tx_id,)).fetchone()
+    for rule in conn.execute("SELECT * FROM bank_rules WHERE item_id = ?", (item_id,)).fetchall():
+        if _rule_matches(rule, tx):
+            conn.execute("DELETE FROM bank_rules WHERE id = ?", (rule["id"],))
+
+
+def _rule_matches(rule, tx) -> bool:
+    if rule["amount_cents"] is not None and abs(tx["cents"]) != rule["amount_cents"]:
+        return False
+    return rule["pattern"].lower() in f"{tx['counterparty']} {tx['text']}".lower()
+
+
 def apply_rules(conn: sqlite3.Connection, only_ids: list[int] | None = None) -> int:
     """Sort unsorted transactions with the saved rules. Newer rules win. A
     rule with an amount only takes transactions of exactly that amount, so a
@@ -520,12 +535,12 @@ def apply_rules(conn: sqlite3.Connection, only_ids: list[int] | None = None) -> 
         sql += f" AND id IN ({','.join('?' * len(only_ids))})"
         args = only_ids
     sorted_count = 0
+    refused = {(r[0], r[1]) for r in conn.execute("SELECT transaction_id, item_id FROM bank_not_item")}
     for tx in conn.execute(sql, args).fetchall():
-        haystack = f"{tx['counterparty']} {tx['text']}".lower()
         for rule in rules:
-            if rule["amount_cents"] is not None and abs(tx["cents"]) != rule["amount_cents"]:
+            if (tx["id"], rule["item_id"]) in refused:
                 continue
-            if rule["pattern"].lower() in haystack:
+            if _rule_matches(rule, tx):
                 _assign(conn, tx["id"], rule["item_id"], bool(rule["ignore"]), tx["year"])
                 sorted_count += 1
                 break
@@ -780,6 +795,12 @@ def due_for_sync(conn: sqlite3.Connection, bdir: Path) -> bool:
 # Transactions for the app
 
 
+# A bank account (aliased b) whose transactions are reconciled with the
+# budget: the budget account's. Money moved to savings or expense accounts is
+# already in the budget as the transfer out of the budget account.
+IN_BUDGET = "b.account_id IN (SELECT id FROM accounts WHERE kind = 'main')"
+
+
 def bank_mode(conn: sqlite3.Connection) -> str:
     """How the bank's amounts are rounded. They can't be refused, so with
     whole numbers only they go to the nearest whole number."""
@@ -794,7 +815,8 @@ def actuals(conn: sqlite3.Connection, year: int) -> dict[int, list[int | None]]:
     out: dict[int, list[int | None]] = defaultdict(lambda: [None] * 12)
     for r in conn.execute(
         "SELECT t.item_id, t.month, t.cents, i.kind FROM bank_transactions t "
-        "JOIN items i ON i.id = t.item_id WHERE t.year = ? AND t.ignored = 0",
+        "JOIN items i ON i.id = t.item_id JOIN bank_accounts b ON b.id = t.bank_account_id "
+        f"WHERE t.year = ? AND t.ignored = 0 AND {IN_BUDGET}",
         (year,),
     ):
         cents = db.round_cents(r["cents"], mode)
@@ -804,12 +826,15 @@ def actuals(conn: sqlite3.Connection, year: int) -> dict[int, list[int | None]]:
 
 
 def month_transactions(conn: sqlite3.Connection, year: int, month: int) -> list[dict]:
-    """The month's transactions from tracked accounts, with suggested items for unsorted ones."""
+    """The month's transactions on the budget account, with suggested items
+    for unsorted ones (never one it was turned down for). account_name is the
+    name given in Sparegrisen."""
     rows = [
         dict(r)
         for r in conn.execute(
-            "SELECT t.*, b.name AS account_name FROM bank_transactions t JOIN bank_accounts b ON b.id = t.bank_account_id "
-            "WHERE t.year = ? AND t.month = ? AND b.track = 1 ORDER BY t.booking_date DESC, t.id DESC",
+            "SELECT t.*, COALESCE(a.name, b.name) AS account_name FROM bank_transactions t "
+            "JOIN bank_accounts b ON b.id = t.bank_account_id LEFT JOIN accounts a ON a.id = b.account_id "
+            f"WHERE t.year = ? AND t.month = ? AND {IN_BUDGET} ORDER BY t.booking_date DESC, t.id DESC",
             (year, month),
         )
     ]
@@ -819,15 +844,19 @@ def month_transactions(conn: sqlite3.Connection, year: int, month: int) -> list[
         (year, month, year, year),
     ).fetchall()
     mode = bank_mode(conn)
+    refused: dict[int, list[int]] = defaultdict(list)
+    for r in conn.execute("SELECT transaction_id, item_id FROM bank_not_item"):
+        refused[r[0]].append(r[1])
     for tx in rows:
         tx["cents"] = db.round_cents(tx["cents"], mode)
+        tx["not_items"] = refused.get(tx["id"], [])  # items it was taken off or turned down for
         tx["suggestions"] = []
         if tx["item_id"] is None and not tx["ignored"]:
             kind = "income" if tx["cents"] > 0 else "expense"
             haystack = f"{tx['counterparty']} {tx['text']}".lower()
             scored = []
             for item in planned:
-                if item["kind"] != kind:
+                if item["kind"] != kind or item["id"] in tx["not_items"]:
                     continue
                 score = 0
                 if item["cents"] is not None and item["cents"] == abs(tx["cents"]):

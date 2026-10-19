@@ -156,9 +156,8 @@ export function ColumnChart({ labels, titles, series, height = 220, format = mon
 
 /** Lines. series: [{ name, color, values[] }]; null values break the line. */
 /**
- * Lines over the months. markOf(i), for a single series, names a point that
- * is a real figure rather than a computed one ("Entered"): drawn as a ring
- * and named in the tooltip.
+ * Lines over the months. markOf(i), for a single series, picks out points
+ * to draw as rings; a string from it is also shown in the tooltip.
  */
 export function LineChart({ labels, titles, series, height = 200, format = money, tickFormat = moneyShort, label, area = false, zero = false, markOf }) {
   const [ref, width] = useWidth();
@@ -230,7 +229,7 @@ export function LineChart({ labels, titles, series, height = 200, format = money
     </svg>`}
     ${active != null && html`<${Tooltip} title=${(titles || labels)[active]} x=${x(active)} width=${width} format=${format}
       rows=${series.map((s) => ({ name: s.name, color: s.color, value: s.values[active] }))}
-      extra=${markOf && markOf(active) && html`<div class="t-row"><span class="t-key"></span><span class="badge accent">${markOf(active)}</span></div>`} />`}
+      extra=${markOf && typeof markOf(active) === 'string' && html`<div class="t-row"><span class="t-key"></span><span class="badge accent">${markOf(active)}</span></div>`} />`}
   </div>`;
 }
 

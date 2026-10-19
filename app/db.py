@@ -202,6 +202,15 @@ MIGRATIONS = [
     UPDATE accounts SET kind = 'expense', in_overview = 0
         WHERE kind = 'main' AND id != (SELECT id FROM accounts WHERE kind = 'main' ORDER BY sort, id LIMIT 1);
     """,
+    # "This transaction is not that item": taken off it, or its suggestion
+    # turned down. Neither suggestions nor rules put it there again.
+    """
+    CREATE TABLE bank_not_item (
+        transaction_id INTEGER NOT NULL REFERENCES bank_transactions (id) ON DELETE CASCADE,
+        item_id        INTEGER NOT NULL REFERENCES items (id) ON DELETE CASCADE,
+        PRIMARY KEY (transaction_id, item_id)
+    );
+    """,
 ]
 
 

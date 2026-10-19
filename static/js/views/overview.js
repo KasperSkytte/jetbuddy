@@ -137,7 +137,7 @@ export function Overview() {
         table=${html`<${ChartTable} labels=${long.map((m) => balanceLabel(household, m))} total=${false} series=${accounts.map((a) => ({ name: a.account.name, values: a.balances }))} />`}>
         <p class="small secondary" style="margin:-6px 0 10px">${t(household.settings.balance_day === 'before_payday' ? 'overview.accountsNoteBefore' : 'overview.accountsNote')}</p>
         ${accounts.map((a) => html`<${AccountChart} key=${a.id} a=${a} refMonth=${refMonth} />`)}
-        ${accounts.some((a) => a.manual.some(Boolean)) && html`<p class="small muted" style="margin:0">${t('overview.ringsHint')}</p>`}
+        ${accounts.some((a) => a.manual.some((m, i) => m && a.source?.[i] !== 'bank')) && html`<p class="small muted" style="margin:0">${t('overview.ringsHint')}</p>`}
         <a class="btn small" href="#/accounts" style="margin-top:10px">${t('overview.allTransactions')}<${Icon} name="right" size=${16} /></a>
       </${ChartCard}>`}
 
@@ -194,14 +194,14 @@ function AccountChart({ a, refMonth }) {
   const value = a.balances[refMonth];
   const known = a.balances.some((v) => v != null);
   const color = seriesColor(a.account.color);
-  const mark = (i) => (a.manual[i] ? (a.source?.[i] === 'bank' ? t('month.fromBank') : t('month.actual')) : null);
+  const typed = (i) => a.manual[i] && a.source?.[i] !== 'bank'; // typed in, not from the bank: drawn as a ring
   return html`<div style="margin-bottom:14px">
     <div class="row"><${Dot} color=${color} /><strong class="spacer ellipsis">${a.account.name}</strong>
       <span class="num" style="font-weight:650">${money(value)}</span></div>
     <div class="small muted" style="margin:0 0 4px 18px">
       ${known ? balanceLabel(household, long[refMonth]) : t('overview.accountUnknown')}
-      ${mark(refMonth) && html` · <span class="badge accent">${mark(refMonth)}</span>`}</div>
-    ${known && html`<${LineChart} labels=${short} titles=${long.map((m) => balanceLabel(household, m))} markOf=${mark}
+</div>
+    ${known && html`<${LineChart} labels=${short} titles=${long.map((m) => balanceLabel(household, m))} markOf=${typed}
       series=${[{ name: a.account.name, color, values: a.balances }]} height=${130} label=${a.account.name} />`}
   </div>`;
 }
