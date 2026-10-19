@@ -9,7 +9,7 @@ import { setFormat } from './fmt.js';
 const now = new Date();
 const saved = (key, fallback) => {
   try {
-    const v = localStorage.getItem('sparegrisen.' + key) ?? localStorage.getItem('jetbuddy.' + key); // the app's old name
+    const v = localStorage.getItem('sparegrisen.' + key);
     return v == null ? fallback : JSON.parse(v);
   } catch {
     return fallback;

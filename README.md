@@ -115,9 +115,6 @@ Most people won't need these. Set them under `environment:` in
 | `SPAREGRISEN_BANK_SYNC_HOURS=6` | How often to sync with the bank. `0` turns automatic syncing off. |
 | `SPAREGRISEN_PUBLIC_URL` | The address of your Sparegrisen, e.g. `https://budget.example.com`, if the bank sends you back to the wrong address. |
 
-Sparegrisen used to be called Jetbuddy. An older install keeps working: its data
-is taken over on the first start, and `JETBUDDY_…` settings are still read.
-
 ## Development
 
 ```bash

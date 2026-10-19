@@ -235,14 +235,7 @@ def budget_dir(budget_id: int) -> Path:
 
 
 def open_server() -> sqlite3.Connection:
-    path = DATA_DIR / "sparegrisen.db"
-    if not path.exists() and (DATA_DIR / "jetbuddy.db").exists():
-        # The app used to be called Jetbuddy: carry on with its data.
-        for suffix in ("", "-wal", "-shm"):
-            old = DATA_DIR / f"jetbuddy.db{suffix}"
-            if old.exists():
-                old.rename(DATA_DIR / f"sparegrisen.db{suffix}")
-    conn = connect(path)
+    conn = connect(DATA_DIR / "sparegrisen.db")
     migrate(conn, SERVER_MIGRATIONS)
     return conn
 

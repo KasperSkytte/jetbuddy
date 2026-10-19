@@ -457,14 +457,16 @@ def test_measure_day():
     assert measure_day(2026, 5, "before_payday") == date(2026, 5, 28)  # 31st is a Sunday: Friday 29th
 
 
-def test_data_from_the_old_name_is_kept(tmp_path, monkeypatch):
-    """Sparegrisen used to be called Jetbuddy: its data file is taken over."""
-    monkeypatch.setattr(db, "DATA_DIR", tmp_path)
-    old = db.connect(tmp_path / "jetbuddy.db")
-    db.migrate(old, db.SERVER_MIGRATIONS)
-    old.execute("INSERT INTO budgets (name, login, password_hash, created) VALUES ('Hjem', 'hjem', 'x', 0)")
-    old.commit()
-    old.close()
-    conn = db.open_server()
-    assert conn.execute("SELECT login FROM budgets").fetchone()[0] == "hjem"
-    assert not (tmp_path / "jetbuddy.db").exists()
+
+def test_restore_converts_an_old_backup(client, household):
+    """A backup from before expense accounts (and from when the app was called
+    Jetbuddy) is brought up to date: one budget account, the rest expense accounts."""
+    old = client.get("/api/export").json()
+    old["format"], old["schema"] = "jetbuddy", 5
+    for a in old["accounts"]:
+        a.pop("in_overview")
+    old["accounts"].append({**old["accounts"][0], "id": 99, "name": "Second", "sort": 9})
+    assert client.post("/api/restore", json=old).status_code == 200
+    kinds = {a["name"]: (a["kind"], a["in_overview"]) for a in client.get("/api/state").json()["accounts"]}
+    first = old["accounts"][0]["name"]
+    assert kinds[first] == ("main", True) and kinds["Second"] == ("expense", False)

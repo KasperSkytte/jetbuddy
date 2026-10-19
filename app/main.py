@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from urllib.parse import quote
 
-from . import __version__, auth, banking, calc, checks, db, importer
+from . import __version__, auth, backup, banking, calc, checks, db, importer
 from . import env as getenv
 from . import export_xlsx as export_workbook
 
@@ -929,10 +929,11 @@ async def restore(request: Request, conn: sqlite3.Connection = Conn):
         data = json.loads(await request.body())
     except ValueError:
         raise AppError(422, "NOT_JSON", "not a JSON file")
-    if not isinstance(data, dict) or data.get("format") not in ("sparegrisen", "jetbuddy"):  # the app's old name
+    if not isinstance(data, dict) or data.get("format") not in backup.FORMATS:
         raise AppError(422, "NOT_BACKUP", "not a Sparegrisen backup")
     if data.get("schema", 0) > len(db.MIGRATIONS):
         raise AppError(422, "BACKUP_TOO_NEW", "this backup is from a newer version of Sparegrisen")
+    data = backup.upgrade(data, len(db.MIGRATIONS))
     try:
         with db.transaction(conn):
             for t in reversed(TABLES):
