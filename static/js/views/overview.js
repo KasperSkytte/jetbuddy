@@ -144,7 +144,6 @@ export function Overview() {
       ${memberRows.length > 0 && html`<section class="card">
         <div class="card-head"><h2>${t('overview.byPerson')}</h2></div>
         <div class="list" style="margin:0 -16px">${memberRows.map((r) => html`<div class="list-row person-row" key=${r.m.id}>
-          <${Dot} color=${seriesColor(r.m.color)} />
           <div class="main-col"><div class="name">${r.m.name}</div>
             <div class="meta">${r.income ? `${t('common.income')} ${money(r.income)} · ` : ''}${t('common.expenses')} ${money(r.expense)}${expense ? ` (${percent(r.expense / expense)})` : ''}</div>
           </div>
