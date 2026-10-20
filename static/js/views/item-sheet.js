@@ -2,7 +2,7 @@ import { html, useState, useRef, useEffect } from '../lib.js';
 import { api } from '../api.js';
 import { useStore, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
-import { monthNames, parseTyped, amountText, money, sum, signed, hasDecimals, cleanTyped, amountInputMode } from '../fmt.js';
+import { monthNames, parseTyped, negativeIncome, amountText, money, sum, signed, hasDecimals, cleanTyped, amountInputMode } from '../fmt.js';
 import { Sheet, Segmented, Switch, Icon, toast, toastError } from '../ui.js';
 import { members, categories, EVERY, applyPattern, detectPattern } from '../model.js';
 
@@ -272,7 +272,8 @@ export function ItemSheet({ year, item, member, kind, focusMonth, initial, onClo
           ${values.map((v, i) => html`<${MonthTile} key=${i} label=${short[i]} longLabel=${long[i]} value=${v} kind=${form.kind} onCommit=${(val) => editMonth(i, val)}
             onInvalid=${(isBad) => markBad(i, isBad)} problem=${unreadable[i]} />`)}
         </div>
-        ${badMonths.size > 0 && html`<p class="small bad" style="margin:10px 0 0">${t('item.fixRed')}</p>`}
+        ${mode === 'pattern' && negativeIncome(pattern.text, form.kind) && html`<p class="small bad" style="margin:10px 0 0">${t('amount.noNegativeIncome')}</p>`}
+        ${badMonths.size > 0 && html`<p class="small bad" style="margin:10px 0 0">${t(form.kind === 'income' ? 'item.fixRedIncome' : 'item.fixRed')}</p>`}
         ${badMonths.size === 0 && unreadable.some((r, i) => r && values[i] == null) && html`<p class="small bad" style="margin:10px 0 0">${t('item.unreadableHint')}</p>`}
         ${hasPrev && html`<button class="btn small" style="margin-top:12px" onClick=${copyPrev}><${Icon} name="copy" size=${16} />${t('item.copyPrev', { year: year - 1 })}</button>`}
       </div>

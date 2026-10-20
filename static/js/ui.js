@@ -1,7 +1,7 @@
 // Small shared components: icons, modal sheet, toasts, amount input, chips.
 import { html, useState, useEffect, useRef, render } from './lib.js';
 import { useStore, setStore } from './store.js';
-import { amountText, parseTyped, hasDecimals, cleanTyped, amountInputMode } from './fmt.js';
+import { amountText, parseTyped, negativeIncome, hasDecimals, cleanTyped, amountInputMode } from './fmt.js';
 import { t, has } from './i18n.js';
 
 // ------------------------------------------------------------------ icons
@@ -188,7 +188,7 @@ export function AmountInput({ value, kind, onSave, placeholder = '–', classNam
     if (Number.isNaN(parsed)) {
       dirty.current = true;
       setState('invalid');
-      toast(t('amount.notSaved', { text }), { error: true });
+      toast(t(negativeIncome(text, kind) ? 'amount.negativeIncome' : 'amount.notSaved', { text }), { error: true });
       return;
     }
     setText(amount(parsed));

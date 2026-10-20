@@ -96,12 +96,20 @@ export function amountText(v, kind) {
   return (v > 0 ? MINUS : '+') + amount(Math.abs(v));
 }
 
+/** True for a negative amount typed as income, which isn't allowed: it would be an expense. */
+export function negativeIncome(text, kind) {
+  const v = kind === 'income' ? parseAmount(text) : null;
+  return v != null && v < 0;
+}
+
 /**
  * What was typed in an amount box, as it is kept. In an expense box a number
  * without a sign is money spent, as is one with a minus; a plus is money back.
+ * Income can't be negative (NaN).
  */
 export function parseTyped(text, kind) {
   const v = parseAmount(text);
+  if (negativeIncome(text, kind)) return NaN;
   if (kind !== 'expense' || v == null || Number.isNaN(v)) return v;
   return /^\s*[-−–+]/.test(String(text)) ? -v || 0 : v;
 }
