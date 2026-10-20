@@ -1,7 +1,7 @@
 // Small SVG charts: grouped columns, lines, and horizontal bar lists.
 // Thin marks, hairline grid, one shared tooltip per x position that also
 // works by tapping (phones) and with arrow keys.
-import { html, useState, useRef, useLayoutEffect, useEffect } from './lib.js';
+import { html, useState, useRef, useLayoutEffect } from './lib.js';
 import { money, moneyShort } from './fmt.js';
 import { t } from './i18n.js';
 

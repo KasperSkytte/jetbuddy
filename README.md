@@ -9,9 +9,9 @@ stays on your own server.
 
 <p>
   <img src="docs/phone-overview.png" width="200" alt="Overview on a phone">
-  <img src="docs/phone-month.png" width="200" alt="This month's expenses on a phone">
+  <img src="docs/phone-month.png" width="200" alt="A month's budget on a phone, expenses negative">
   <img src="docs/phone-budget.png" width="200" alt="Budget items on a phone">
-  <img src="docs/phone-balance-dark.png" width="200" alt="Monthly balance, dark mode">
+  <img src="docs/phone-reconcile-dark.png" width="200" alt="Reconciling a month against the bank, dark mode">
 </p>
 <img src="docs/desktop-month.png" alt="Income and expenses side by side on a computer">
 
@@ -26,8 +26,8 @@ stays on your own server.
   the money goes, per person and per category, and how it changes over the years.
 - **Bank sync (optional).** Your bank accounts and their real balances show up
   by themselves, and you see what was actually paid next to what you planned.
-- **Reconcile each month.** See the bank's transactions that aren't in the
-  budget yet, by account and payment type (card, Betalingsservice…), and the
+- **Reconcile each month.** See the budget account's transactions that aren't
+  in the budget yet, with their payment type (card, Betalingsservice…), and the
   items where the bank paid more or less than planned. Tell it to sort a
   payment by itself from then on, and only what changed is left to look at.
 - **Accounts as they are used:** one budget account everything flows through,
@@ -89,15 +89,17 @@ Sparegrisen with all its data.
 
 Each month, the **Reconcile (Afstemning)** page shows the transactions that
 aren't on the budget yet and the items where the bank and the budget differ.
-Put a transaction on an item, and turn on "Do it automatically from now on"
-(choose "Vælg post…") when the same payment, with the same amount, should be
-sorted by itself next time. When a
-transaction has exactly an item's amount, it is also offered right at the item.
+Put a transaction on an item with one tap, or choose "Choose item…" and turn on
+"Do it automatically from now on" when the same payment (optionally only with
+the same amount) should be sorted by itself next time. When a transaction has
+exactly an item's amount, it is also offered right at the item. A month that is
+over gets a green dot once everything in it is reconciled.
 
 ## Moving from a spreadsheet
 
 If your budget is in Excel or Google Sheets with one row per item and one column
-per month, **Settings → Import** brings it in. Import one file per year and the
+per month, **Settings → Data → Import from a spreadsheet** brings it in (or the Import
+button on an empty year). Import one file per year and the
 items are joined up across years. From Google Sheets, use *File → Download →
 Microsoft Excel* first.
 

@@ -44,6 +44,9 @@ export function itemStatus(items, month) {
   return rows.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 }
 
+/** The rows where the bank and the budget differ: what "Differ" lists, and what the Month page counts. */
+export const differs = (r) => ['more', 'less', 'unplanned'].includes(r.status);
+
 /** Runs an action, reloads, and says so, with an undo when one is given. */
 function useAct(onChanged) {
   return async (fn, message, undo) => {
@@ -227,7 +230,7 @@ export function Reconcile({ year, month, items, txs, onChanged }) {
   const done = txs.filter((x) => x.item_id || x.ignored);
   const rows = itemStatus(items, month);
   const groups = {
-    differ: rows.filter((r) => ['more', 'less', 'unplanned'].includes(r.status)),
+    differ: rows.filter(differs),
     missing: rows.filter((r) => r.status === 'missing'),
     ok: rows.filter((r) => r.status === 'ok'),
     all: rows,

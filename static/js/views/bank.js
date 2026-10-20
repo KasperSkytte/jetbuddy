@@ -5,8 +5,8 @@ import { html, useState, useEffect } from '../lib.js';
 import { api } from '../api.js';
 import { useStore, useData, bump, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
-import { money, amount, signed, monthNames } from '../fmt.js';
-import { Sheet, Switch, Icon, Dot, Empty, Chips, seriesColor, toast, toastError, errorText } from '../ui.js';
+import { amount, signed, monthNames } from '../fmt.js';
+import { Sheet, Icon, Dot, toast, toastError, errorText } from '../ui.js';
 import { members, memberById, memberColor } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
 
@@ -341,7 +341,7 @@ export function BankSettings() {
           <button class="btn ghost icon small" onClick=${() => removeRule(r.id)} aria-label=${t('common.delete')}><${Icon} name="trash" size=${17} /></button>
         </div>`)}</div>
       </div>`}
-      <p class="small muted" style="margin:0;padding:10px 16px 14px">${t('bank.autoSync', { n: s.sync_hours })}
+      <p class="small muted" style="margin:0;padding:10px 16px 14px">${s.sync_hours > 0 ? t('bank.autoSync', { n: s.sync_hours }) : t('bank.autoSyncOff')}
         <button class="btn ghost small danger" onClick=${removeConfig}>${t('bank.removeKey')}</button></p>
     `}
     ${picker && html`<${BankPicker} preset=${picker.preset} onClose=${() => setPicker(null)} />`}

@@ -5,7 +5,7 @@ import { api } from '../api.js';
 import { useStore, useData, bump } from '../store.js';
 import { t } from '../i18n.js';
 import { amount, money, signed, monthNames } from '../fmt.js';
-import { Sheet, Icon, Dot, toast, toastError } from '../ui.js';
+import { Sheet, Icon, Dot, toastError } from '../ui.js';
 import { memberColor, memberById } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
 

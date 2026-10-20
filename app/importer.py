@@ -79,15 +79,16 @@ def parse_number(value, decimal: str = ",", both: str = "last", whole: str = "ke
     ignores the other (1.234,56 and 1,234.56 are both 1234.56); both='invalid'
     rejects it. More than one decimal separator is never valid.
 
-    whole='only' accepts whole numbers only: nothing but the digits 0-9 (a
-    number cell must be a whole number). Rounding is done by the caller."""
+    whole='only' accepts whole numbers only: nothing but the digits 0-9 and a
+    leading minus (a number cell must be a whole number). Rounding is done by
+    the caller."""
     if value is None or isinstance(value, bool):
         return None
     if whole == "only":
         if isinstance(value, (int, float)):
             return float(round(value)) if abs(value - round(value)) < 1e-6 else None
-        text = str(value).strip()
-        return float(text) if re.fullmatch(r"[0-9]+", text) else None
+        text = str(value).strip().replace("\u2212", "-").replace("\u2013", "-")
+        return float(text) if re.fullmatch(r"-?[0-9]+", text) else None
     if isinstance(value, (int, float)):
         return float(value)
     text = str(value).strip().replace("\u2212", "-").replace("\u2013", "-")

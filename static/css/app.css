@@ -457,8 +457,9 @@ table.data tr.total td { font-weight: 650; }
 .plan-cols { display: grid; gap: 12px; align-items: start; }
 .plan-cols > .card + .card { margin-top: 0; }
 @media (min-width: 900px) { .plan-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
-.form-grid { display: grid; gap: 14px; }
-@media (min-width: 700px) { .form-grid.two { grid-template-columns: 1fr 1fr; } }
+/* minmax(0, …): a wide control (the decimal sign choice) shrinks instead of pushing the form past the screen. */
+.form-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 700px) { .form-grid.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 details.more summary { cursor: pointer; color: var(--accent-ink); font-weight: 560; min-height: 36px; display: flex; align-items: center; }
 
 /* ---------------------------------------------------------------- toast */

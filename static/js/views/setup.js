@@ -2,7 +2,7 @@ import { html, useState } from '../lib.js';
 import { api } from '../api.js';
 import { setStore } from '../store.js';
 import { t, LANGUAGES, setLanguage, currentLanguage } from '../i18n.js';
-import { setFormat, defaultDecimal } from '../fmt.js';
+import { setFormat } from '../fmt.js';
 import { Logo, Icon, toastError } from '../ui.js';
 import { CURRENCIES, DecimalChoice } from './settings.js';
 

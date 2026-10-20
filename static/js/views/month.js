@@ -3,11 +3,11 @@ import { api } from '../api.js';
 import { useStore, useData, setStore } from '../store.js';
 import { t } from '../i18n.js';
 import { money, signedMoney, monthNames, amount, amountText, signed } from '../fmt.js';
-import { AmountInput, Chips, Dot, Icon, Empty, Segmented, seriesColor, useWide, KindSwitch, SortChoice } from '../ui.js';
+import { AmountInput, Chips, Dot, Icon, Segmented, seriesColor, useWide, KindSwitch, SortChoice } from '../ui.js';
 import { members, itemsOf, monthTotals, categoryById, accountById, sortItems, measureDate, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
 import { CopyYearBanner } from './plan.js';
-import { Reconcile, ItemBankSheet, itemStatus } from './reconcile.js';
+import { Reconcile, ItemBankSheet, itemStatus, differs } from './reconcile.js';
 
 function MonthPicker({ month, year, onChange, reconciled = [] }) {
   const long = monthNames('long');
@@ -144,7 +144,7 @@ export function Month() {
   const [editing, setEditing] = useState(null); // { item } or { member, kind }
   const banked = bank.data?.configured && bank.data.accounts.some((a) => a.budget); // the budget account is from a bank
   const unsorted = bank.data?.unsorted[`${year}-${month}`] || 0;
-  const differ = items.data && !items.stale ? itemStatus(items.data, month).filter((r) => r.bad).length : 0;
+  const differ = items.data && !items.stale ? itemStatus(items.data, month).filter(differs).length : 0;
   const txs = useData(banked ? `/api/bank/transactions?year=${year}&month=${month}` : null);
   const reconciling = banked && store.monthMode === 'reconcile';
   const [bankItem, setBankItem] = useState(null); // the item whose bank transactions are open

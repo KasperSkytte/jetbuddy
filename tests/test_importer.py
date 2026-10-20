@@ -42,3 +42,12 @@ def test_parse_number_either_last_wins(text, value):
 )
 def test_other_decimal(text, decimal, suspect):
     assert other_decimal(text, decimal) is suspect
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("4500", 4500), ("-4500", -4500), ("−4500", -4500), (4500.0, 4500), (-12, -12),
+    ("4.500", None), ("12,5", None), ("45 kr", None), ("+ 45", None), (12.5, None),
+])
+def test_parse_number_whole_numbers_only(value, expected):
+    # Digits and a minus in front (an expenses sheet written negative), nothing else.
+    assert parse_number(value, whole="only") == expected
