@@ -87,7 +87,7 @@ them your own names. Which accounts Sparegrisen sees is decided at the bank: lea
 an account out there (or unlink it in Enable Banking) and it disappears from
 Sparegrisen with all its data.
 
-Each month, the **Reconcile (Afstemning)** page shows the transactions that
+Each month, **Month → Reconcile** (Måned → Afstem) shows the transactions that
 aren't on the budget yet and the items where the bank and the budget differ.
 Put a transaction on an item with one tap, or choose "Choose item…" and turn on
 "Do it automatically from now on" when the same payment (optionally only with
