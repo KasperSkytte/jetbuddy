@@ -356,7 +356,7 @@ export function AssignView({ tx, items, year, onBack, onDone }) {
   const [query, setQuery] = useState('');
   const [rule, setRule] = useState(false);
   const [pattern, setPattern] = useState(tx.pattern);
-  const [sameAmount, setSameAmount] = useState(true);
+  const [sameAmount, setSameAmount] = useState(false);
   const [creating, setCreating] = useState(false);
   const matching = items.filter((i) => i.kind === kind);
   const shown = matching.filter((i) => i.name.toLowerCase().includes(query.trim().toLowerCase()));

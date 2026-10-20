@@ -341,8 +341,15 @@ function Accounts() {
   </${Section}>`;
 }
 
+/** True, once, when the page was opened as /#/settings?import (straight to the import). */
+function openedForImport() {
+  if (!/[?&]import\b/.test(location.hash)) return false;
+  history.replaceState(null, '', '#/settings');
+  return true;
+}
+
 function Data() {
-  const [importing, setImporting] = useState(false);
+  const [importing, setImporting] = useState(openedForImport);
   const [exporting, setExporting] = useState(false);
   const [checking, setChecking] = useState(false);
   const restore = (e) => {

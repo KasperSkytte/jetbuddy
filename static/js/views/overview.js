@@ -43,7 +43,7 @@ export function Overview() {
         <p>${t('overview.emptyText')}</p>
         <div class="row wrap" style="justify-content:center">
           <a class="btn primary" href="#/plan"><${Icon} name="plus" size=${18} />${t('overview.startBudget')}</a>
-          <a class="btn" href="#/settings"><${Icon} name="upload" size=${18} />${t('overview.importSheet')}</a>
+          <a class="btn" href="#/settings?import"><${Icon} name="upload" size=${18} />${t('overview.importSheet')}</a>
         </div>
         ${household.years.length > 0 && html`<p class="small" style="margin-top:20px">${t('overview.otherYears')}
           ${household.years.map((y) => html` <button class="btn small" key=${y} onClick=${() => setStore({ year: y })}>${y}</button>`)}</p>`}
