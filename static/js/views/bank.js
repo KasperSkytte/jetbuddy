@@ -354,7 +354,7 @@ export function AssignView({ tx, items, year, onBack, onDone }) {
   const { household } = useStore();
   const kind = tx.amount > 0 ? 'income' : 'expense';
   const [query, setQuery] = useState('');
-  const [rule, setRule] = useState(true);
+  const [rule, setRule] = useState(false);
   const [pattern, setPattern] = useState(tx.pattern);
   const [sameAmount, setSameAmount] = useState(true);
   const [creating, setCreating] = useState(false);

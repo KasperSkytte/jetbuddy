@@ -71,8 +71,8 @@ function useAct(onChanged) {
   };
 }
 
-/** Put a transaction on an item from now on automatically (same text and amount), with an undo. */
-function putOn(act, tx, item, rule = true) {
+/** Put a transaction on an item (this one only, no rule), with an undo. */
+function putOn(act, tx, item, rule = false) {
   return act(
     () => api.put(`/api/bank/transactions/${tx.id}`, { item_id: item.id, rule: rule ? tx.pattern || null : null, rule_amount: true }),
     t('reconcile.putOn', { name: item.name }),

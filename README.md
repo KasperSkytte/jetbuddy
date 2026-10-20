@@ -88,8 +88,9 @@ Sparegrisen with all its data.
 
 Each month, the **Reconcile (Afstemning)** page shows the transactions that
 aren't on the budget yet and the items where the bank and the budget differ.
-Put a transaction on an item and leave "Do it automatically from now on" on:
-the same payment, with the same amount, is sorted by itself next time. When a
+Put a transaction on an item, and turn on "Do it automatically from now on"
+(choose "Vælg post…") when the same payment, with the same amount, should be
+sorted by itself next time. When a
 transaction has exactly an item's amount, it is also offered right at the item.
 
 ## Moving from a spreadsheet
