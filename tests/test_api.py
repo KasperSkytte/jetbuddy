@@ -233,8 +233,9 @@ def test_excel_export(client, household):
     assert wb.sheetnames[:2] == ["Summary", "Budget"]
     summary = {row[0]: row[1:] for row in wb["Summary"].iter_rows(values_only=True) if row[0]}
     assert summary["Total income"][:2] == (53250, 639000)
-    assert summary["Total expenses"][1] == round(12000 * 12 + 8500 * 12 + 149.95 * 12 + 9000 * 12, 2)
-    assert summary["   of which fixed expenses"][1] == round((12000 + 149.95) * 12, 2)
+    # Expenses are negative, as in the app.
+    assert summary["Total expenses"][1] == -round(12000 * 12 + 8500 * 12 + 149.95 * 12 + 9000 * 12, 2)
+    assert summary["   of which fixed expenses"][1] == -round((12000 + 149.95) * 12, 2)
     budget = [row for row in wb["Budget"].iter_rows(values_only=True)]
     labels = [row[0] for row in budget]
     # Expenses are categorised, so grouped by category in the categories' order.
@@ -242,7 +243,11 @@ def test_excel_export(client, household):
     surplus = next(row for row in budget if row[0] == "Surplus (income − expenses)")
     assert surplus[3] == round(53250 - (12000 + 8500 + 149.95 + 9000), 2)
     rent = next(row for row in budget if row[0] == "Rent")
-    assert rent[1] == "Shared" and rent[2] == "✓"
+    assert rent[1] == "Shared" and rent[2] == "✓" and rent[3] == -12000
+    salary = next(row for row in budget if row[0] == "Salary")
+    assert salary[3] > 0
+    total_expenses = next(row for row in budget if row[0] == "Total expenses")
+    assert total_expenses[3] == -round(12000 + 8500 + 149.95 + 9000, 2)
     # Grouped by person when asked.
     wb2 = openpyxl.load_workbook(io.BytesIO(client.get("/api/export/2027.xlsx?group=member").content))
     labels2 = [row[0] for row in wb2["Budget"].iter_rows(values_only=True)]

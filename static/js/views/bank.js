@@ -5,7 +5,7 @@ import { html, useState, useEffect } from '../lib.js';
 import { api } from '../api.js';
 import { useStore, useData, bump, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
-import { money, amount, monthNames } from '../fmt.js';
+import { money, amount, signed, monthNames } from '../fmt.js';
 import { Sheet, Switch, Icon, Dot, Empty, Chips, seriesColor, toast, toastError, errorText } from '../ui.js';
 import { members, memberById, memberColor } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
@@ -336,7 +336,7 @@ export function BankSettings() {
       ${s.rules.length > 0 && html`<div>
         <div class="group-label">${t('bank.rules')}</div>
         <div class="list">${s.rules.map((r) => html`<div class="list-row" key=${r.id} style="min-height:48px">
-          <div class="main-col"><div class="name" style="font-weight:500">“${r.pattern}”${r.amount != null ? ' ' + t('bank.ruleAmountShort', { amount: amount(r.amount) }) : ''}</div>
+          <div class="main-col"><div class="name" style="font-weight:500">“${r.pattern}”${r.amount != null ? ' ' + t('bank.ruleAmountShort', { amount: amount(signed(r.amount, r.item_kind)) }) : ''}</div>
             <div class="meta">→ ${r.ignore ? t('bank.ignored') : r.item_name}</div></div>
           <button class="btn ghost icon small" onClick=${() => removeRule(r.id)} aria-label=${t('common.delete')}><${Icon} name="trash" size=${17} /></button>
         </div>`)}</div>
@@ -396,7 +396,7 @@ export function AssignView({ tx, items, year, onBack, onDone }) {
         <input class="input" value=${pattern} onInput=${(e) => setPattern(e.target.value)} /></label>
         <label class="row" style="cursor:pointer;min-height:40px;gap:10px"><input type="checkbox" checked=${sameAmount}
           onChange=${(e) => setSameAmount(e.target.checked)} style="width:20px;height:20px" />
-          <span class="small">${t('bank.ruleAmount', { amount: amount(Math.abs(tx.amount)) })}</span></label>
+          <span class="small">${t('bank.ruleAmount', { amount: amount(tx.amount) })}</span></label>
         <span class="small muted">${t('bank.ruleAmountHint')}</span>`}
     </div>
     ${suggestions.length > 0 && html`<div>

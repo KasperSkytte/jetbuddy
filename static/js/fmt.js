@@ -40,9 +40,12 @@ export function setFormat({ language = 'en', currency = 'USD', decimal, both = '
   };
 }
 
+// A real minus sign, joined to the number so a line never breaks between them.
+const MINUS = '−\u2060';
+
 /** Format with the chosen separators instead of the locale's own. */
 function apply(nf, v) {
-  return nf.formatToParts(v).map((p) => (p.type === 'decimal' ? fmt.decimal : p.type === 'group' ? fmt.group : p.value)).join('');
+  return nf.formatToParts(v).map((p) => (p.type === 'decimal' ? fmt.decimal : p.type === 'group' ? fmt.group : p.type === 'minusSign' ? MINUS : p.value)).join('');
 }
 
 setFormat();
@@ -59,7 +62,7 @@ export function signedMoney(v) {
   if (v == null) return '–';
   const s = money(Math.abs(v));
   if (Math.abs(v) < 0.5) return s;
-  return (v > 0 ? '+' : '−') + s;
+  return (v > 0 ? '+' : MINUS) + s;
 }
 
 /** 12,3K kr. - for axis ticks and tight spots. */
@@ -78,6 +81,31 @@ export function amount(v) {
   return apply(fmt.plain, v);
 }
 
+/**
+ * Expenses are kept as positive amounts (a refund is negative) but shown as
+ * negative numbers everywhere: this is the amount as it is shown.
+ */
+export function signed(v, kind) {
+  return v == null || kind !== 'expense' ? v : -v;
+}
+
+/** An amount as it stands in an amount box: an expense with its minus, money back on an expense with a plus. */
+export function amountText(v, kind) {
+  if (v == null || v === '') return '';
+  if (kind !== 'expense' || Math.abs(v) < 0.005) return amount(v);
+  return (v > 0 ? MINUS : '+') + amount(Math.abs(v));
+}
+
+/**
+ * What was typed in an amount box, as it is kept. In an expense box a number
+ * without a sign is money spent, as is one with a minus; a plus is money back.
+ */
+export function parseTyped(text, kind) {
+  const v = parseAmount(text);
+  if (kind !== 'expense' || v == null || Number.isNaN(v)) return v;
+  return /^\s*[-−–+]/.test(String(text)) ? -v || 0 : v;
+}
+
 export function percent(v) {
   if (v == null || !Number.isFinite(v)) return '–';
   return apply(fmt.pct, v);
@@ -90,12 +118,17 @@ export function percent(v) {
  * NaN for invalid.
  */
 export function parseAmount(text) {
-  if (text == null || String(text).trim() === '') return null;
+  text = text == null ? text : String(text).replace(/\u2060/g, '');
+  if (text == null || text.trim() === '') return null;
   if (fmt.decimals === 'only') {
-    // Digits only; the thousands separators amounts are shown with ("2.160") are fine.
-    const s = String(text).trim();
+    // Digits only, with a sign in front; the thousands separators amounts are shown with ("−2.160") are fine.
+    const t = String(text).trim();
+    const sign = /^[-−–+]/.test(t) ? t[0] : '';
+    const s = t.slice(sign.length).trim();
     const grouped = new RegExp(`^[0-9]{1,3}(${fmt.group === '\u202f' ? '[\u202f ]' : '\\' + fmt.group}[0-9]{3})+$`);
-    return /^[0-9]+$/.test(s) || grouped.test(s) ? Number(s.replace(/[^0-9]/g, '')) : NaN;
+    if (!/^[0-9]+$/.test(s) && !grouped.test(s)) return NaN;
+    const v = Number(s.replace(/[^0-9]/g, ''));
+    return sign && sign !== '+' ? -v || 0 : v;
   }
   const keep = fmt.either ? /[^0-9,.+-]/g : fmt.decimal === ',' ? /[^0-9,+-]/g : /[^0-9.+-]/g;
   const s = String(text).replace(/[−–]/g, '-').replace(keep, '');
@@ -155,10 +188,11 @@ export function hasDecimals(v) {
   return fmt.decimals !== 'keep' && v != null && Math.round(v * 100) % 100 !== 0;
 }
 
-/** For an amount box's onInput: with whole numbers only, nothing but 0-9 gets in. */
+/** For an amount box's onInput: with whole numbers only, nothing but 0-9 (and a sign in front) gets in. */
 export function cleanTyped(e) {
   if (wholeOnly()) {
-    const clean = e.target.value.replace(/[^0-9]/g, '');
+    const sign = e.target.value.match(/^\s*([-−–+])/)?.[1] || '';
+    const clean = sign + e.target.value.replace(/[^0-9]/g, '');
     if (clean !== e.target.value) e.target.value = clean;
   }
   return e.target.value;

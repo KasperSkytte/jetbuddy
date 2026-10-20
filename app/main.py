@@ -1169,7 +1169,7 @@ def bank_status(request: Request, conn: sqlite3.Connection = Conn):
         a["balance"] = db.from_cents(a.pop("balance_cents"))
         a["budget"] = bool(a["budget"])  # the budget account's: its transactions are reconciled
     rules = rows(conn.execute(
-        "SELECT r.*, i.name AS item_name FROM bank_rules r LEFT JOIN items i ON i.id = r.item_id ORDER BY r.pattern"
+        "SELECT r.*, i.name AS item_name, i.kind AS item_kind FROM bank_rules r LEFT JOIN items i ON i.id = r.item_id ORDER BY r.pattern"
     ))
     for r in rules:
         r["ignore"] = bool(r["ignore"])

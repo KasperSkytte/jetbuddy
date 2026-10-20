@@ -157,11 +157,12 @@ def build(conn: sqlite3.Connection, year: int, group: str = "auto") -> tuple[byt
     total_in, total_out = sum(income), sum(expense)
     fixed, savings = sum(summary["fixed"]), sum(summary["savings"])
     net = total_in - total_out
-    lines = [(T["total_income"], total_in, False), (T["total_expenses"], total_out, False)]
+    # Expenses are negative, as everywhere in the app.
+    lines = [(T["total_income"], total_in, False), (T["total_expenses"], -total_out, False)]
     if fixed:
-        lines.append(("   " + T["of_fixed"], fixed, False))
+        lines.append(("   " + T["of_fixed"], -fixed, False))
     if savings:
-        lines.append(("   " + T["of_savings"], savings, False))
+        lines.append(("   " + T["of_savings"], -savings, False))
     lines.append((T["surplus"], net, True))
     if fixed:
         lines.append((T["after_fixed"], total_in - fixed, False))
@@ -185,7 +186,7 @@ def build(conn: sqlite3.Connection, year: int, group: str = "auto") -> tuple[byt
         if not (mi or me):
             continue
         r += 1
-        _row(ws, r, [m["name"], per_month(mi), per_month(me), _money(mi), _money(me)], fmt=MONEY)
+        _row(ws, r, [m["name"], per_month(mi), per_month(-me), _money(mi), _money(-me)], fmt=MONEY)
 
     # Account balances: the latest real one, and where the budget says the year ends.
     real_accounts = [a for a in summary["accounts"] if a["id"] in accounts and any(a["manual"])]
@@ -211,17 +212,22 @@ def build(conn: sqlite3.Connection, year: int, group: str = "auto") -> tuple[byt
     first_money_col = 4
     r = 3
 
+    # Expenses are written as negative numbers, as the app shows them.
+    def sign(kind):
+        return -1 if kind == "expense" else 1
+
     def write_item(item):
         nonlocal r
         r += 1
-        values = [_money(v) for v in item["values"]]
+        k = sign(item["kind"])
+        values = [_money(None if v is None else k * v) for v in item["values"]]
         _row(ws, r, [item["name"], members.get(item["member_id"], {}).get("name", ""), T["fixed_mark"] if item["fixed"] else "",
-                     *values, _money(item["total"]), _money(round(item["total"] / 12))], fmt=MONEY)
+                     *values, _money(k * item["total"]), _money(round(k * item["total"] / 12))], fmt=MONEY)
 
     def write_total(label, group_items, style="sub"):
         nonlocal r
         r += 1
-        month_totals = [sum((i["values"][m] or 0) for i in group_items) for m in range(12)]
+        month_totals = [sum(sign(i["kind"]) * (i["values"][m] or 0) for i in group_items) for m in range(12)]
         total = sum(month_totals)
         _row(ws, r, [label, "", "", *[_money(v) for v in month_totals], _money(total), _money(round(total / 12))],
              fmt=MONEY, font=BOLD, fill=TOTAL_FILL if style == "total" else None, border=DOUBLE if style == "total" else TOP)
@@ -262,7 +268,7 @@ def build(conn: sqlite3.Connection, year: int, group: str = "auto") -> tuple[byt
     exp_totals = write_total(T["total_expenses"], exp_items, "total")
 
     r += 2
-    surplus = [inc_totals[m] - exp_totals[m] for m in range(12)]
+    surplus = [inc_totals[m] + exp_totals[m] for m in range(12)]  # the expenses are negative
     _row(ws, r, [T["surplus"], "", "", *[_money(v) for v in surplus], _money(sum(surplus)), _money(round(sum(surplus) / 12))],
          fmt=MONEY_RED, font=BOLD, fill=TOTAL_FILL, border=DOUBLE)
 

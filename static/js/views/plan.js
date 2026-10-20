@@ -2,7 +2,7 @@ import { html, useState } from '../lib.js';
 import { api } from '../api.js';
 import { useStore, useData, setStore, bump, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
-import { money, signedMoney, sum } from '../fmt.js';
+import { money, signedMoney, signed, sum } from '../fmt.js';
 import { Chips, Dot, Icon, seriesColor, toast, toastError, useWide, KindSwitch, SortChoice } from '../ui.js';
 import { members, memberById, memberColor, itemsOf, categoryById, accountById, describeAmounts, sortItems, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
@@ -40,7 +40,7 @@ export function CopyYearBanner({ year }) {
 function ItemCard({ item, household, onOpen, reorder, onMove, color, showMember }) {
   const category = categoryById(household, item.category_id);
   const account = accountById(household, item.account_id);
-  const meta = [describeAmounts(item.amounts), category?.name, account && '→ ' + account.name].filter(Boolean).join(' · ');
+  const meta = [describeAmounts(item.amounts, item.kind), category?.name, account && '→ ' + account.name].filter(Boolean).join(' · ');
   return html`<div class="list-row tap item-row" onClick=${() => !reorder && onOpen(item)}>
     <div class="main-col">
       <div class="row" style="gap:6px"><span class="name">${item.name}</span>
@@ -52,7 +52,7 @@ function ItemCard({ item, household, onOpen, reorder, onMove, color, showMember 
       ? html`<div class="row" style="gap:2px">
           <button class="btn ghost icon small" onClick=${(e) => { e.stopPropagation(); onMove(-1); }} aria-label=${t('plan.moveUp')}><${Icon} name="up" size=${18} /></button>
           <button class="btn ghost icon small" onClick=${(e) => { e.stopPropagation(); onMove(1); }} aria-label=${t('plan.moveDown')}><${Icon} name="down" size=${18} /></button></div>`
-      : html`<div class="amount">${money(sum(item.amounts))}</div>`}
+      : html`<div class="amount">${money(signed(sum(item.amounts), item.kind))}</div>`}
     <div class="month-strip" style=${{ '--strip': color }} aria-hidden="true">${item.amounts.map((v, i) => html`<span key=${i} class=${v != null && v !== 0 ? 'on' : ''}></span>`)}</div>
   </div>`;
 }
@@ -63,7 +63,7 @@ function ListView({ items, household, onOpen, onAdd, reorder, onMove, kinds, sor
     const color = kind === 'income' ? INCOME_COLOR : EXPENSE_COLOR;
     return html`<section class="card flush" key=${kind}>
       <div class="group-label" style="padding-top:14px">${kind === 'income' ? t('common.income') : t('common.expenses')}
-        <span class="total">${money(sum(list.map((i) => sum(i.amounts))))}</span></div>
+        <span class="total">${money(signed(sum(list.map((i) => sum(i.amounts))), kind))}</span></div>
       <div class="list">${list.map((item, idx) => html`<${ItemCard} key=${item.id} item=${item} household=${household} color=${color} showMember=${showMember}
         onOpen=${onOpen} reorder=${reorder} onMove=${(d) => onMove(list, idx, d)} />`)}</div>
       <button class="add-row" onClick=${() => onAdd(kind)}><${Icon} name="plus" size=${18} />${kind === 'income' ? t('plan.addIncome') : t('plan.addExpense')}</button>
@@ -127,7 +127,7 @@ export function Plan() {
       <div class="row wrap" style="row-gap:12px">
         <div class="sum-strip spacer" style="min-width:min(100%, 420px)">
           <div><div class="label"><${Dot} color=${INCOME_COLOR} size=${8} />${t('common.income')}</div><div class="value">${money(income)}</div></div>
-          <div><div class="label"><${Dot} color=${EXPENSE_COLOR} size=${8} />${t('common.expenses')}</div><div class="value">${money(expense)}</div></div>
+          <div><div class="label"><${Dot} color=${EXPENSE_COLOR} size=${8} />${t('common.expenses')}</div><div class="value">${money(-expense)}</div></div>
           <div><div class="label">${t('common.balance')}</div><div class=${'value ' + (income - expense > 0.5 ? 'good' : income - expense < -0.5 ? 'bad' : '')}>${signedMoney(income - expense)}</div></div>
         </div>
       </div>

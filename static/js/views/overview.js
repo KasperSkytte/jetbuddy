@@ -57,7 +57,7 @@ export function Overview() {
 
   const monthSeries = [
     { name: t('common.income'), color: INCOME_COLOR, values: s.income },
-    { name: t('common.expenses'), color: EXPENSE_COLOR, values: s.expense },
+    { name: t('common.expenses'), color: EXPENSE_COLOR, values: s.expense.map((v) => -v) }, // below zero
   ];
   const balanceSeries = [{ name: t('overview.accumulated'), color: seriesColor(0), values: s.cumulative }];
 
@@ -87,7 +87,7 @@ export function Overview() {
       <div class="card-head" style="margin-bottom:8px"><h2 style="text-transform:capitalize">${long[refMonth]}</h2><span class="muted small">${t('overview.editMonth')}</span><${Icon} name="right" size=${18} /></div>
       <div class="sum-strip">
         <div><div class="label"><${Dot} color=${INCOME_COLOR} size=${8} />${t('common.income')}</div><div class="value">${money(thisMonth.income)}</div></div>
-        <div><div class="label"><${Dot} color=${EXPENSE_COLOR} size=${8} />${t('common.expenses')}</div><div class="value">${money(thisMonth.expense)}</div></div>
+        <div><div class="label"><${Dot} color=${EXPENSE_COLOR} size=${8} />${t('common.expenses')}</div><div class="value">${money(-thisMonth.expense)}</div></div>
         <div><div class="label">${t('common.balance')}</div><div class=${'value ' + netClass(thisMonth.net)}>${signedMoney(thisMonth.net)}</div></div>
       </div>
     </a>`}
@@ -97,16 +97,16 @@ export function Overview() {
       <div class=${'value ' + netClass(net)}>${signedMoney(net)}</div>
       <div class="sub">
         <span class="key"><${Dot} color=${INCOME_COLOR} size=${8} />${t('common.income')} ${money(income)}</span>
-        <span class="key"><${Dot} color=${EXPENSE_COLOR} size=${8} />${t('common.expenses')} ${money(expense)}</span>
+        <span class="key"><${Dot} color=${EXPENSE_COLOR} size=${8} />${t('common.expenses')} ${money(-expense)}</span>
       </div>
     </section>
 
     <div class="tiles">
       <${Tile} label=${t('overview.avgIncome')} value=${money(income / activeMonths)} delta=${t('overview.perMonth')} />
-      <${Tile} label=${t('overview.avgExpenses')} value=${money(expense / activeMonths)} delta=${t('overview.perMonth')} />
+      <${Tile} label=${t('overview.avgExpenses')} value=${money(-expense / activeMonths)} delta=${t('overview.perMonth')} />
       <${Tile} label=${t('overview.saved')} value=${money(saved)} delta=${income ? t('overview.ofIncome', { pct: percent(saved / income) }) : ''} />
       ${fixed > 0
-        ? html`<${Tile} label=${t('overview.fixed')} value=${percent(fixed / expense)} delta=${t('overview.fixedHint', { amount: money(fixed) })} />`
+        ? html`<${Tile} label=${t('overview.fixed')} value=${percent(fixed / expense)} delta=${t('overview.fixedHint', { amount: money(-fixed) })} />`
         : html`<${Tile} label=${t('overview.surplusMonths')} value=${`${s.net.filter((v, i) => v > 0.5).length} / ${activeMonths}`} delta=${t('overview.surplusHint')} />`}
     </div>
 
@@ -145,7 +145,7 @@ export function Overview() {
         <div class="card-head"><h2>${t('overview.byPerson')}</h2></div>
         <div class="list" style="margin:0 -16px">${memberRows.map((r) => html`<div class="list-row person-row" key=${r.m.id}>
           <div class="main-col"><div class="name">${r.m.name}</div>
-            <div class="meta">${r.income ? `${t('common.income')} ${money(r.income)} · ` : ''}${t('common.expenses')} ${money(r.expense)}${expense ? ` (${percent(r.expense / expense)})` : ''}</div>
+            <div class="meta">${r.income ? `${t('common.income')} ${money(r.income)} · ` : ''}${t('common.expenses')} ${money(-r.expense)}${expense ? ` (${percent(r.expense / expense)})` : ''}</div>
           </div>
           <div class=${'amount ' + netClass(r.income - r.expense)}>${signedMoney(r.income - r.expense)}</div>
           ${r.expense > 0 && html`<div class="track" title=${t('overview.shareOfExpenses')}><div class="fill" style=${{ width: (r.expense / expense) * 100 + '%', '--fill': seriesColor(r.m.color) }}></div></div>`}
@@ -156,7 +156,7 @@ export function Overview() {
         <div class="card-head"><h2>${t('overview.byCategory')}</h2></div>
         ${catRows.length === 1 && catRows[0].key === 'none'
           ? html`<p class="secondary small" style="margin:0">${t('overview.noCategories')}</p>`
-          : html`<${BarList} rows=${catRows.map((c) => ({ ...c, color: EXPENSE_COLOR, sub: percent(c.value / expense) }))} />`}
+          : html`<${BarList} rows=${catRows.map((c) => ({ ...c, color: EXPENSE_COLOR, sub: percent(c.value / expense) }))} format=${(v) => money(-v)} />`}
       </section>`}
 
       ${s.top_expenses.length > 0 && html`<section class="card flush">
@@ -168,7 +168,7 @@ export function Overview() {
             <${Dot} color=${memberColor(household, item.member_id)} />
             <div class="main-col"><div class="name">${item.name}</div>
               <div class="meta">${memberById(household, item.member_id)?.name}${item.category_id ? ' · ' + (categoryById(household, item.category_id)?.name || '') : ''}</div></div>
-            <div style="text-align:right"><div class="amount">${money(x.total)}</div><div class="small muted">${percent(x.total / expense)}</div></div>
+            <div style="text-align:right"><div class="amount">${money(-x.total)}</div><div class="small muted">${percent(x.total / expense)}</div></div>
           </div>`;
         })}</div>
       </section>`}

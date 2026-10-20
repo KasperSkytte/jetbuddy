@@ -1,7 +1,7 @@
 // Small shared components: icons, modal sheet, toasts, amount input, chips.
 import { html, useState, useEffect, useRef, render } from './lib.js';
 import { useStore, setStore } from './store.js';
-import { amount, parseAmount, hasDecimals, cleanTyped, amountInputMode } from './fmt.js';
+import { amountText, parseTyped, hasDecimals, cleanTyped, amountInputMode } from './fmt.js';
 import { t, has } from './i18n.js';
 
 // ------------------------------------------------------------------ icons
@@ -161,9 +161,11 @@ export function Sheet({ title, onClose, children, footer, wide = false }) {
 /**
  * A text box for money. Shows the formatted value, edits the raw one, saves
  * on blur or Enter (which also moves to the next box, so a column of amounts
- * can be typed in one go).
+ * can be typed in one go). With kind 'expense' the amount is shown and typed
+ * as a negative number, but saved as the positive amount spent.
  */
-export function AmountInput({ value, onSave, placeholder = '–', className = 'amount-input', label, manual = false, autoFocus = false, problem = false }) {
+export function AmountInput({ value, kind, onSave, placeholder = '–', className = 'amount-input', label, manual = false, autoFocus = false, problem = false }) {
+  const amount = (v) => amountText(v, kind);
   const [text, setText] = useState(amount(value));
   const [focused, setFocused] = useState(false);
   const [state, setState] = useState(''); // '', 'saved', 'invalid'
@@ -171,7 +173,7 @@ export function AmountInput({ value, onSave, placeholder = '–', className = 'a
   const ref = useRef(null);
   useEffect(() => {
     if (!focused) setText(amount(value));
-  }, [value, focused]);
+  }, [value, focused, kind]);
   useEffect(() => {
     if (autoFocus) ref.current?.focus();
   }, []);
@@ -182,7 +184,7 @@ export function AmountInput({ value, onSave, placeholder = '–', className = 'a
       return;
     }
     dirty.current = false;
-    const parsed = parseAmount(text);
+    const parsed = parseTyped(text, kind);
     if (Number.isNaN(parsed)) {
       dirty.current = true;
       setState('invalid');

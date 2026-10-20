@@ -1,7 +1,7 @@
 // Lookups over the household data from /api/state.
 import { seriesColor } from './ui.js';
 import { t, currentLanguage } from './i18n.js';
-import { amount, monthNames } from './fmt.js';
+import { amount as amountShown, monthNames, signed } from './fmt.js';
 
 export function members(household, { archived = false } = {}) {
   return household.members.filter((m) => archived || !m.archived);
@@ -80,8 +80,9 @@ export function detectPattern(values) {
   return { value, every, from: months[0], to: last + every > 11 ? 11 : last };
 }
 
-/** "2,500 every month", "880 in Feb, May, Aug, Nov", or "Varies". */
-export function describeAmounts(values) {
+/** "2,500 every month", "−880 in Feb, May, Aug, Nov", or "Varies". Expenses are negative. */
+export function describeAmounts(values, kind) {
+  const amount = (v) => amountShown(signed(v, kind));
   const p = detectPattern(values);
   if (!values.some((v) => v != null)) return t('pattern.none');
   if (!p) {

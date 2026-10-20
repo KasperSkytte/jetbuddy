@@ -4,7 +4,7 @@ import { html, useState } from '../lib.js';
 import { api } from '../api.js';
 import { useStore, useData, bump } from '../store.js';
 import { t } from '../i18n.js';
-import { amount, money, monthNames } from '../fmt.js';
+import { amount, money, signed, monthNames } from '../fmt.js';
 import { Sheet, Icon, Dot, toast, toastError } from '../ui.js';
 import { memberColor, memberById } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
@@ -14,21 +14,22 @@ function whereText(where) {
   return where.map((w) => (w.months.length === 12 ? t('checks.wholeYear', { year: w.year }) : `${w.months.map((m) => short[m - 1]).join(', ')} ${w.year}`)).join(' · ');
 }
 
-const list = (values) => values.map((v) => amount(v)).join(', ');
-
 function describe(f) {
+  // An item's amounts as they are shown: expenses negative.
+  const amt = (v) => amount(signed(v, f.kind));
+  const list = (values) => values.map(amt).join(', ');
   const factor = amount(Math.abs(f.factor || 0));
   switch (f.type) {
     case 'item':
       return f.factor
-        ? t(f.factor > 0 ? 'checks.itemBigger' : 'checks.itemSmaller', { where: whereText(f.where), factor, values: list(f.values), typical: amount(f.typical) })
-        : t('checks.itemOff', { where: whereText(f.where), values: list(f.values), typical: amount(f.typical) });
+        ? t(f.factor > 0 ? 'checks.itemBigger' : 'checks.itemSmaller', { where: whereText(f.where), factor, values: list(f.values), typical: amt(f.typical) })
+        : t('checks.itemOff', { where: whereText(f.where), values: list(f.values), typical: amt(f.typical) });
     case 'split':
       return t('checks.split', { factor, low: whereText(f.low), lowValues: list(f.low_values), high: whereText(f.where), highValues: list(f.high_values) });
     case 'bank':
-      return t('checks.bank', { where: whereText(f.where), planned: amount(f.values[0]), actual: amount(f.actual) });
+      return t('checks.bank', { where: whereText(f.where), planned: amt(f.values[0]), actual: amt(f.actual) });
     case 'large':
-      return t('checks.large', { where: whereText(f.where), value: amount(f.values[0]), income: money(f.income) });
+      return t('checks.large', { where: whereText(f.where), value: amt(f.values[0]), income: money(f.income) });
     case 'balance':
       return t('checks.balance', { where: whereText(f.where), value: money(f.values[0]), expected: money(f.expected) });
     case 'decimals':

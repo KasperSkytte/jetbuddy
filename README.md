@@ -28,9 +28,8 @@ stays on your own server.
   by themselves, and you see what was actually paid next to what you planned.
 - **Reconcile each month.** See the bank's transactions that aren't in the
   budget yet, by account and payment type (card, Betalingsservice…), and the
-  items where the bank paid more or less than planned. Put a payment on an item
-  once and the same payment is sorted by itself from then on, so only what
-  changed is left to look at.
+  items where the bank paid more or less than planned. Tell it to sort a
+  payment by itself from then on, and only what changed is left to look at.
 - **Accounts as they are used:** one budget account everything flows through,
   savings, and expense accounts (money moved there is spent from there). Read
   month-end balances on the last day, or the day before payday so the salary
@@ -41,6 +40,8 @@ stays on your own server.
 - **Export to Excel**, and import your old budget spreadsheet.
 - One login per household. Several households can share a server.
 - Sort items by amount, name or category.
+- Expenses are shown as negative numbers everywhere, in charts and the Excel
+  export too. Type them without the minus; a plus on an expense is money back.
 - English and Danish, any currency, comma or dot decimals (or whole numbers
   only), light and dark mode.
 

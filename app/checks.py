@@ -77,7 +77,7 @@ def find(conn: sqlite3.Connection, dismissed: set[str] = frozenset()) -> dict:
 
     def item_finding(type_, item_id, where, **extra):
         item = items[item_id]
-        return {"type": type_, "item_id": item_id, "name": item["name"], "member_id": item["member_id"], "where": where, **extra}
+        return {"type": type_, "item_id": item_id, "name": item["name"], "kind": item["kind"], "member_id": item["member_id"], "where": where, **extra}
 
     # 1. Amounts of an item that fall into groups of very different size. The
     #    amounts within a factor THRESHOLD of each other form a group; the

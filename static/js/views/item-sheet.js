@@ -2,16 +2,18 @@ import { html, useState, useRef, useEffect } from '../lib.js';
 import { api } from '../api.js';
 import { useStore, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
-import { monthNames, parseAmount, amount, money, sum, hasDecimals, cleanTyped, amountInputMode } from '../fmt.js';
+import { monthNames, parseTyped, amountText, money, sum, signed, hasDecimals, cleanTyped, amountInputMode } from '../fmt.js';
 import { Sheet, Segmented, Switch, Icon, toast, toastError } from '../ui.js';
 import { members, categories, EVERY, applyPattern, detectPattern } from '../model.js';
 
 /**
  * One month as a tile. It is a real text box (so a tap goes straight to the
  * keyboard on phones) that looks like a tile until focused. Enter moves on
- * to the next month.
+ * to the next month. Expenses are shown and typed as negative numbers.
  */
-function MonthTile({ label, longLabel, value, onCommit, onInvalid, problem }) {
+function MonthTile({ label, longLabel, value, kind, onCommit, onInvalid, problem }) {
+  const amount = (v) => amountText(v, kind);
+  const parseAmount = (s) => parseTyped(s, kind);
   const [text, setText] = useState(amount(value));
   const [bad, setBad] = useState(false); // typed something that isn't an amount: stays red, blocks saving
   const skip = useRef(false);
@@ -19,7 +21,7 @@ function MonthTile({ label, longLabel, value, onCommit, onInvalid, problem }) {
     setText(amount(value));
     setBad(false);
     onInvalid(false);
-  }, [value]);
+  }, [value, kind]);
   const commit = () => {
     if (skip.current) {
       skip.current = false;
@@ -93,7 +95,7 @@ export function ItemSheet({ year, item, member, kind, focusMonth, initial, onClo
   // 'pattern': the amounts follow amount/every/from/to. 'custom': month by month.
   const [mode, setMode] = useState(hasValues && !detected ? 'custom' : 'pattern');
   const [pattern, setPattern] = useState(() => ({
-    text: detected ? amount(detected.value) : '',
+    text: detected ? amountText(detected.value, item?.kind || kind || 'expense') : '',
     every: detected?.every ?? 1,
     from: detected?.from ?? (isNew && focusMonth ? focusMonth - 1 : 0),
     to: detected?.to ?? 11,
@@ -102,6 +104,9 @@ export function ItemSheet({ year, item, member, kind, focusMonth, initial, onClo
   const short = monthNames('short');
   const long = monthNames('long');
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+  // Amounts are typed as they are shown: expenses negative.
+  const amount = (v) => amountText(v, form.kind);
+  const parseAmount = (text) => parseTyped(text, form.kind);
   const prev = item?.prev || Array(12).fill(null);
   const hasPrev = prev.some((v) => v != null);
   const patternValue = parseAmount(pattern.text);
@@ -150,6 +155,13 @@ export function ItemSheet({ year, item, member, kind, focusMonth, initial, onClo
     } else if (updated.some((x) => x != null)) {
       setMode('custom');
     }
+  };
+
+  // The amounts stay; the typed one follows the new kind's sign.
+  const changeKind = (next) => {
+    const v = parseAmount(pattern.text);
+    if (v != null && !Number.isNaN(v)) setPattern((p) => ({ ...p, text: amountText(v, next) }));
+    set({ kind: next, category_id: null });
   };
 
   const copyPrev = () => {
@@ -222,7 +234,7 @@ export function ItemSheet({ year, item, member, kind, focusMonth, initial, onClo
       </label>
       <div class="form-grid two">
         <div class="field"><span>${t('item.type')}</span>
-          <${Segmented} value=${form.kind} onChange=${(kind) => set({ kind, category_id: null })}
+          <${Segmented} value=${form.kind} onChange=${changeKind}
             options=${[{ value: 'expense', label: t('common.expense') }, { value: 'income', label: t('common.incomeOne') }]} />
         </div>
         <label class="field"><span>${t('item.whose')}</span>
@@ -254,10 +266,10 @@ export function ItemSheet({ year, item, member, kind, focusMonth, initial, onClo
 
         <div class="row" style="margin:16px 0 8px">
           <span class="spacer small secondary">${mode === 'custom' ? t('item.tapMonths') : t('item.tapToChange')}</span>
-          <span class="small num"><span class="muted">${t('item.yearTotal', { year })}</span> <strong>${money(sum(values))}</strong></span>
+          <span class="small num"><span class="muted">${t('item.yearTotal', { year })}</span> <strong>${money(signed(sum(values), form.kind))}</strong></span>
         </div>
         <div class="mtiles">
-          ${values.map((v, i) => html`<${MonthTile} key=${i} label=${short[i]} longLabel=${long[i]} value=${v} onCommit=${(val) => editMonth(i, val)}
+          ${values.map((v, i) => html`<${MonthTile} key=${i} label=${short[i]} longLabel=${long[i]} value=${v} kind=${form.kind} onCommit=${(val) => editMonth(i, val)}
             onInvalid=${(isBad) => markBad(i, isBad)} problem=${unreadable[i]} />`)}
         </div>
         ${badMonths.size > 0 && html`<p class="small bad" style="margin:10px 0 0">${t('item.fixRed')}</p>`}

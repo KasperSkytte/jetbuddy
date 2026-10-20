@@ -6,7 +6,7 @@ import { html, useState } from '../lib.js';
 import { api } from '../api.js';
 import { useStore } from '../store.js';
 import { t } from '../i18n.js';
-import { money, amount, signedMoney, monthNames } from '../fmt.js';
+import { money, amount, signed, signedMoney, monthNames } from '../fmt.js';
 import { Sheet, Icon, Dot, Chips, toast, toastError, useWide } from '../ui.js';
 import { members, memberById, memberColor, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
 import { AssignView } from './bank.js';
@@ -152,7 +152,7 @@ function ItemLine({ row, onOpen }) {
     <${Dot} color=${memberColor(household, item.member_id)} />
     <span class="spacer" style="min-width:0;text-align:left">
       <span class="ellipsis" style="display:block;font-weight:560">${item.name}<span class="small muted" style="font-weight:400"> · ${memberById(household, item.member_id)?.name}</span></span>
-      <span class="small secondary">${t(item.kind === 'income' ? 'reconcile.budgetVsReceived' : 'reconcile.budgetVsPaid', { planned: amount(planned), actual: actual == null ? '–' : amount(actual) })}</span>
+      <span class="small secondary">${t(item.kind === 'income' ? 'reconcile.budgetVsReceived' : 'reconcile.budgetVsPaid', { planned: amount(signed(planned, item.kind)), actual: actual == null ? '–' : amount(signed(actual, item.kind)) })}</span>
     </span>
     <span class=${'rc-status ' + status + (bad ? ' bad' : status === 'ok' ? ' good' : '')}>${STATUS_LABEL[status](row)}</span>
   </button>`;
@@ -178,7 +178,7 @@ export function ItemBankSheet({ item, year, month, txs, items, onClose, onChange
     : [];
   const actual = item.actual?.[month - 1];
   const setBudget = () => act(() => api.put(`/api/items/${item.id}/amount`, { year, month, amount: actual }),
-    t('reconcile.budgetSet', { amount: amount(actual) }),
+    t('reconcile.budgetSet', { amount: amount(signed(actual, item.kind)) }),
     () => api.put(`/api/items/${item.id}/amount`, { year, month, amount: planned ?? null }));
   return html`<${Sheet} title=${item.name} onClose=${onClose}>
     <div class="stack">
@@ -186,9 +186,9 @@ export function ItemBankSheet({ item, year, month, txs, items, onClose, onChange
         <select class="input" value=${item.member_id} onChange=${(e) => moveTo(Number(e.target.value))}>
           ${members(household).map((m) => html`<option key=${m.id} value=${m.id}>${m.name}</option>`)}</select></label>
       <div class="sum-strip" style="grid-template-columns:repeat(3,1fr)">
-        <div><div class="label">${t('reconcile.budget')}</div><div class="value">${planned != null ? amount(planned) : '–'}</div></div>
-        <div><div class="label">${t(item.kind === 'income' ? 'reconcile.received' : 'reconcile.paid')}</div><div class="value">${actual != null ? amount(actual) : '–'}</div></div>
-        <div><div class="label">${t('reconcile.difference')}</div><div class="value">${actual != null ? signedMoney(actual - (planned || 0)) : '–'}</div></div>
+        <div><div class="label">${t('reconcile.budget')}</div><div class="value">${planned != null ? amount(signed(planned, item.kind)) : '–'}</div></div>
+        <div><div class="label">${t(item.kind === 'income' ? 'reconcile.received' : 'reconcile.paid')}</div><div class="value">${actual != null ? amount(signed(actual, item.kind)) : '–'}</div></div>
+        <div><div class="label">${t('reconcile.difference')}</div><div class="value">${actual != null ? signedMoney(signed(actual - (planned || 0), item.kind)) : '–'}</div></div>
       </div>
       <div>
         <div class="group-label" style="padding-left:0">${t('reconcile.onItem', { month: long[month - 1] })}</div>
@@ -208,7 +208,7 @@ export function ItemBankSheet({ item, year, month, txs, items, onClose, onChange
       </div>`}
       ${actual != null && Math.abs(actual - (planned || 0)) >= 1 && html`<div class="notice" style="margin:0;background:var(--surface-2)">
         <p class="small" style="margin:0 0 8px">${t('reconcile.setBudgetHint')}</p>
-        <button class="btn small" onClick=${setBudget}>${t('reconcile.setBudget', { month: long[month - 1], amount: amount(actual) })}</button>
+        <button class="btn small" onClick=${setBudget}>${t('reconcile.setBudget', { month: long[month - 1], amount: amount(signed(actual, item.kind)) })}</button>
       </div>`}
     </div>
   </${Sheet}>`;
@@ -268,7 +268,7 @@ export function Reconcile({ year, month, items, txs, onChanged }) {
         <div><div class="label"><${Dot} color=${INCOME_COLOR} size=${8} />${t('common.income')}</div>
           <div class="value">${money(income.actual)}</div><div class="small muted">${t('reconcile.ofBudget', { amount: money(income.planned) })}</div></div>
         <div><div class="label"><${Dot} color=${EXPENSE_COLOR} size=${8} />${t('common.expenses')}</div>
-          <div class="value">${money(expense.actual)}</div><div class="small muted">${t('reconcile.ofBudget', { amount: money(expense.planned) })}</div></div>
+          <div class="value">${money(-expense.actual)}</div><div class="small muted">${t('reconcile.ofBudget', { amount: money(-expense.planned) })}</div></div>
         <div><div class="label">${expense.actual - expense.planned > 0.5 ? t('reconcile.overBudget') : t('reconcile.leftOfBudget')}</div>
           <div class=${'value ' + (expense.actual - expense.planned > 0.5 ? 'bad' : '')}>${money(Math.abs(expense.planned - expense.actual))}</div>
           <div class="small muted">${t('reconcile.expensesVsBudget')}</div></div>

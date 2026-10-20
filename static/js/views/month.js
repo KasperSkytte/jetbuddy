@@ -2,7 +2,7 @@ import { html, useState, useRef } from '../lib.js';
 import { api } from '../api.js';
 import { useStore, useData, setStore } from '../store.js';
 import { t } from '../i18n.js';
-import { money, signedMoney, monthNames, amount } from '../fmt.js';
+import { money, signedMoney, monthNames, amount, amountText, signed } from '../fmt.js';
 import { AmountInput, Chips, Dot, Icon, Empty, Segmented, seriesColor, useWide, KindSwitch, SortChoice } from '../ui.js';
 import { members, itemsOf, monthTotals, categoryById, accountById, sortItems, measureDate, INCOME_COLOR, EXPENSE_COLOR } from '../model.js';
 import { ItemSheet } from './item-sheet.js';
@@ -70,11 +70,11 @@ function ItemRow({ item, month, year, household, onSaved, onOpen, onBank }) {
         ${t('month.unreadable', { raw: item.unreadable[month - 1] })}</div>`}
       ${actual != null && html`<div class="bank-line">
         <button class=${'linkish ' + (matches ? 'good' : '')} title=${t('month.bankShow')} onClick=${(e) => { e.stopPropagation(); onBank(item); }}>
-          <${Icon} name=${matches ? 'check' : 'bank'} size=${13} stroke=${2.2} /> ${t('month.bankPaid', { amount: amount(actual) })}</button>
+          <${Icon} name=${matches ? 'check' : 'bank'} size=${13} stroke=${2.2} /> ${t('month.bankPaid', { amount: amount(signed(actual, item.kind)) })}</button>
       </div>`}
     </div>
-    <${AmountInput} value=${item.amounts[month - 1]} onSave=${save} label=${item.name} problem=${!!item.unreadable?.[month - 1]}
-      placeholder=${prev != null ? amount(prev) : '–'} />
+    <${AmountInput} value=${item.amounts[month - 1]} kind=${item.kind} onSave=${save} label=${item.name} problem=${!!item.unreadable?.[month - 1]}
+      placeholder=${prev != null ? amountText(prev, item.kind) : '–'} />
   </div>`;
 }
 
@@ -90,7 +90,7 @@ function MemberSection({ member, kind, items, month, year, household, onSaved, o
     <div class="member-head">
       <${Dot} color=${seriesColor(member.color)} size=${12} />
       <h2 class="ellipsis">${member.name}</h2>
-      <span class="num small muted" style="font-weight:600">${money(kind === 'income' ? totals.income : totals.expense)}</span>
+      <span class="num small muted" style="font-weight:600">${money(kind === 'income' ? totals.income : -totals.expense)}</span>
     </div>
     <div class="list">${shown.map((item) => html`<${ItemRow} key=${item.id} item=${item} month=${month} year=${year}
       household=${household} onSaved=${onSaved} onOpen=${onOpen} onBank=${onBank} />`)}</div>
@@ -187,7 +187,7 @@ export function Month() {
     <div class="card" style=${{ margin: '10px 0 12px', display: reconciling ? 'none' : null }}>
       <div class="sum-strip">
         <div><div class="label"><${Dot} color=${INCOME_COLOR} size=${8} />${t('common.income')}</div><div class="value">${totals ? money(totals.income) : '–'}</div></div>
-        <div><div class="label"><${Dot} color=${EXPENSE_COLOR} size=${8} />${t('common.expenses')}</div><div class="value">${totals ? money(totals.expense) : '–'}</div></div>
+        <div><div class="label"><${Dot} color=${EXPENSE_COLOR} size=${8} />${t('common.expenses')}</div><div class="value">${totals ? money(-totals.expense) : '–'}</div></div>
         <div><div class="label">${t('common.balance')}</div><div class=${'value ' + (totals?.net > 0.5 ? 'good' : totals?.net < -0.5 ? 'bad' : '')}>${totals ? signedMoney(totals.net) : '–'}</div></div>
       </div>
     </div>
@@ -210,7 +210,7 @@ export function Month() {
       ${wide ? html`<div class="plan-cols">${['income', 'expense'].map((kind) => html`<div key=${kind}>
           <div class="col-head"><h2><${Dot} color=${kind === 'income' ? INCOME_COLOR : EXPENSE_COLOR} size=${10} />
             ${kind === 'income' ? t('common.income') : t('common.expenses')}</h2>
-            <span class="num secondary" style="font-weight:650">${totals ? money(kind === 'income' ? totals.income : totals.expense) : ''}</span></div>
+            <span class="num secondary" style="font-weight:650">${totals ? money(kind === 'income' ? totals.income : -totals.expense) : ''}</span></div>
           ${column(kind)}</div>`)}</div>`
         : column(store.kindTab || 'expense')}
       ${filter === 'all' && html`<${Balances} summary=${summary.data} month=${month} year=${year} household=${household} bank=${bank.data} onSaved=${summary.reload} />`}

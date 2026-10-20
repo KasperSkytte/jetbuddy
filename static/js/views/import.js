@@ -2,7 +2,7 @@ import { html, useState } from '../lib.js';
 import { request } from '../api.js';
 import { useStore, bump, setStore, reloadHousehold } from '../store.js';
 import { t } from '../i18n.js';
-import { money, amount, sum, monthNames } from '../fmt.js';
+import { money, amount, signed, sum, monthNames } from '../fmt.js';
 import { Sheet, Segmented, Switch, Icon, toast, toastError } from '../ui.js';
 import { DecimalChoice } from './settings.js';
 import { defaultDecimal } from '../fmt.js';
@@ -85,7 +85,7 @@ export function ImportSheet({ onClose }) {
   const sample = (s) => {
     for (const row of s.rows) {
       const i = row.amounts.findIndex((v) => v);
-      if (i >= 0) return t('import.sample', { name: row.name, amount: amount(row.amounts[i] * scale), month: monthNames('long')[i] });
+      if (i >= 0) return t('import.sample', { name: row.name, amount: amount(signed(row.amounts[i] * scale, s.kind)), month: monthNames('long')[i] });
     }
     return '';
   };
@@ -176,7 +176,7 @@ export function ImportSheet({ onClose }) {
               options=${[{ value: 'income', label: t('common.income') }, { value: 'expense', label: t('common.expenses') }]} />
           </div>`}
           ${open === i && html`<div class="list" style="margin-top:8px">${rows.map((row, k) => html`<div key=${k} class="row small" style="padding:4px 0;border-top:1px solid var(--border)">
-            <span class="spacer ellipsis">${row.name}</span><span class="num">${money(sum(row.amounts) * scale)}</span></div>`)}</div>`}
+            <span class="spacer ellipsis">${row.name}</span><span class="num">${money(signed(sum(row.amounts) * scale, s.kind))}</span></div>`)}</div>`}
         </div>`;
       })}
       <p class="small muted" style="margin:0">${t('import.mergeHint')}</p>

@@ -19,7 +19,7 @@ export function Trends() {
   const labels = data.map((y) => String(y.year));
   const yearSeries = [
     { name: t('common.income'), color: INCOME_COLOR, values: data.map((y) => y.income) },
-    { name: t('common.expenses'), color: EXPENSE_COLOR, values: data.map((y) => y.expense) },
+    { name: t('common.expenses'), color: EXPENSE_COLOR, values: data.map((y) => -y.expense) }, // below zero
   ];
   const resultSeries = [
     { name: t('common.balance'), color: seriesColor(0), values: data.map((y) => y.net) },
@@ -31,12 +31,12 @@ export function Trends() {
   const short = monthNames('short');
   const long = monthNames('long');
   const compare = thisYear.data && lastYear.data && lastYear.data.has_data && [
-    { name: String(year - 1), color: seriesColor(6), values: lastYear.data.expense },
-    { name: String(year), color: EXPENSE_COLOR, values: thisYear.data.expense },
+    { name: String(year - 1), color: seriesColor(6), values: lastYear.data.expense.map((v) => -v) },
+    { name: String(year), color: EXPENSE_COLOR, values: thisYear.data.expense.map((v) => -v) },
   ];
 
   const people = members(household, { archived: true }).filter((m) => data.some((y) => y.members.some((x) => x.id === m.id && x.expense)));
-  const personSeries = people.map((m) => ({ name: m.name, color: seriesColor(m.color), values: data.map((y) => y.members.find((x) => x.id === m.id)?.expense || 0) }))
+  const personSeries = people.map((m) => ({ name: m.name, color: seriesColor(m.color), values: data.map((y) => -(y.members.find((x) => x.id === m.id)?.expense || 0)) }))
 
   return html`<div class=${trends.loading ? 'refetching' : ''}>
     <${ReliabilityBanner} />
@@ -62,7 +62,7 @@ export function Trends() {
         <div class="card-head"><h2>${t('trends.table')}</h2></div>
         <div class="list">${[...data].reverse().map((y) => html`<div class="list-row" key=${y.year}>
           <div class="main-col"><div class="name">${y.year}</div>
-            <div class="meta" style="white-space:normal">${t('common.income')} ${money(y.income)} · ${t('common.expenses')} ${money(y.expense)} · ${t('trends.toSavings')} ${money(y.savings)}</div></div>
+            <div class="meta" style="white-space:normal">${t('common.income')} ${money(y.income)} · ${t('common.expenses')} ${money(-y.expense)} · ${t('trends.toSavings')} ${money(y.savings)}</div></div>
           <div style="text-align:right"><div class=${'amount ' + (y.net > 0.5 ? 'good' : y.net < -0.5 ? 'bad' : '')}>${signedMoney(y.net)}</div>
             <div class="small muted">${y.income ? t('trends.rate', { pct: percent((y.savings + y.net) / y.income) }) : ''}</div></div>
         </div>`)}</div>
