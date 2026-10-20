@@ -1307,12 +1307,9 @@ def bank_assign(id: int, body: AssignIn, conn: sqlite3.Connection = Conn):
         banking._assign(conn, id, body.item_id, body.ignored and body.item_id is None, tx["year"])
         rule_id = None
         if body.rule and body.rule.strip() and (body.item_id is not None or body.ignored):
-            rule_id = conn.execute(
-                "INSERT INTO bank_rules (pattern, item_id, ignore, amount_cents) VALUES (?, ?, ?, ?)",
-                (body.rule.strip(), body.item_id, int(body.item_id is None), abs(tx["cents"]) if body.rule_amount else None),
-            ).lastrowid
+            rule_id = banking.save_rule(conn, body.rule, body.item_id, abs(tx["cents"]) if body.rule_amount else None)
             sorted_count = banking.apply_rules(conn)
-    # rule_id: for an undo, which deletes the rule again.
+    # rule_id: a new rule, for an undo, which deletes it again (None when an existing one was changed).
     return {"ok": True, "sorted": sorted_count, "rule_id": rule_id}
 
 

@@ -216,6 +216,16 @@ MIGRATIONS = [
     """
     ALTER TABLE bank_transactions ADD COLUMN manual_month INTEGER NOT NULL DEFAULT 0;
     """,
+    # One rule per text and item: rules saved again for the same text piled
+    # up. The newest of each is kept, as the newest is the one that applied,
+    # and of rules sending the same text and amount different ways too.
+    """
+    DELETE FROM bank_rules WHERE EXISTS (
+        SELECT 1 FROM bank_rules n WHERE n.id > bank_rules.id
+        AND lower(trim(n.pattern)) = lower(trim(bank_rules.pattern))
+        AND ((n.item_id IS bank_rules.item_id AND n.ignore = bank_rules.ignore) OR n.amount_cents IS bank_rules.amount_cents)
+    );
+    """,
 ]
 
 

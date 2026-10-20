@@ -21,9 +21,19 @@ def _expense_accounts(data: dict) -> None:
             main_seen = True
 
 
+def _one_rule_each(data: dict) -> None:
+    """Schema 9 keeps one rule per text and item: a rule goes when a newer one
+    has the same text and the same item, or the same amount (as db.MIGRATIONS)."""
+    rules = data.get("bank_rules", [])
+    text = lambda r: (r.get("pattern") or "").strip().lower()
+    replaces = lambda n, r: n.get("id", 0) > r.get("id", 0) and text(n) == text(r) and (
+        (n.get("item_id") == r.get("item_id") and n.get("ignore") == r.get("ignore")) or n.get("amount_cents") == r.get("amount_cents"))
+    data["bank_rules"] = [r for r in rules if not any(replaces(n, r) for n in rules)]
+
+
 # schema -> what turns a backup of that schema into the next one. Steps that
 # only added tables or columns need nothing: restoring fills in the defaults.
-STEPS = {5: _expense_accounts}
+STEPS = {5: _expense_accounts, 8: _one_rule_each}
 
 
 def upgrade(data: dict, schema: int) -> dict:

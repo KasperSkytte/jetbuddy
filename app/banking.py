@@ -504,6 +504,31 @@ def _assign(conn, tx_id: int, item_id: int | None, ignored: bool, year: int) -> 
         conn.execute("INSERT OR IGNORE INTO item_years (item_id, year) VALUES (?, ?)", (item_id, year))
 
 
+def save_rule(conn: sqlite3.Connection, pattern: str, item_id: int | None, amount_cents: int | None) -> int | None:
+    """Save "text containing pattern (for amount) goes to item_id" (None:
+    ignore it), keeping one rule per text and item: an existing one for the
+    same text and item is changed instead (its amount), and one sending the
+    same text and amount elsewhere is dropped, as the newest choice wins.
+    Text is compared without case, as rules match. Returns the id of a new
+    rule, or None when an existing one was changed."""
+    pattern = pattern.strip()
+    ignore = int(item_id is None)
+    same_text = [r for r in conn.execute("SELECT * FROM bank_rules ORDER BY id DESC").fetchall()
+                 if r["pattern"].strip().lower() == pattern.lower()]
+    mine = [r for r in same_text if r["item_id"] == item_id and r["ignore"] == ignore]
+    for r in same_text:
+        if r not in mine and r["amount_cents"] == amount_cents:
+            conn.execute("DELETE FROM bank_rules WHERE id = ?", (r["id"],))
+    if mine:
+        conn.execute("UPDATE bank_rules SET pattern = ?, amount_cents = ? WHERE id = ?", (pattern, amount_cents, mine[0]["id"]))
+        for r in mine[1:]:
+            conn.execute("DELETE FROM bank_rules WHERE id = ?", (r["id"],))
+        return None
+    return conn.execute(
+        "INSERT INTO bank_rules (pattern, item_id, ignore, amount_cents) VALUES (?, ?, ?, ?)", (pattern, item_id, ignore, amount_cents)
+    ).lastrowid
+
+
 def not_item(conn: sqlite3.Connection, tx_id: int, item_id: int) -> None:
     """Remember that a transaction is not this item, and drop the rules that
     would put it there (they would on the next sync)."""

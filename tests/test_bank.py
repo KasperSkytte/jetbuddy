@@ -490,3 +490,48 @@ def test_excel_export_shows_the_budget_only(client, household, bank):
     assert "Budget and actual" not in wb.sheetnames
     text = " ".join(str(c) for ws in wb for row in ws.iter_rows(values_only=True) for c in row if c is not None)
     assert "Actual" not in text and "Keeping the budget" not in text
+
+
+def test_saving_a_rule_again_does_not_duplicate_it(client, household, bank):
+    alex = next(m for m in household["members"] if m["name"] == "Alex")
+    y, m = LAST_MONTH_END.year, LAST_MONTH_END.month
+    make = lambda name: client.post("/api/items", json={"member_id": alex["id"], "kind": "expense", "name": name, "year": y,
+                                                         "amounts": [129 if i == m - 1 else None for i in range(12)]}).json()
+    netflix, streaming = make("Netflix"), make("Streaming")
+    connect(client)
+    nflx = next(t for t in client.get("/api/bank/transactions", params={"year": y, "month": m}).json() if t["counterparty"] == "NETFLIX.COM")
+    put = lambda **body: client.put(f"/api/bank/transactions/{nflx['id']}", json=body).json()
+    rules = lambda: client.get("/api/bank/status").json()["rules"]
+
+    assert put(item_id=netflix["id"], rule="netflix")["rule_id"]
+    # The same text again, in another case: no second rule, and nothing new for an undo to delete.
+    assert put(item_id=netflix["id"], rule=" NETFLIX ")["rule_id"] is None
+    assert len(rules()) == 1
+    # With the amount now: the one rule gets it.
+    put(item_id=netflix["id"], rule="netflix", rule_amount=True)
+    assert [(r["item_id"], r["amount"]) for r in rules()] == [(netflix["id"], 129)]
+    # The same text and amount to another item: the newest choice wins, still one rule.
+    put(item_id=streaming["id"], rule="netflix", rule_amount=True)
+    assert [(r["item_id"], r["amount"]) for r in rules()] == [(streaming["id"], 129)]
+    # Back to Netflix for any amount: taking it off Streaming drops Streaming's rule, so one rule again.
+    put(item_id=netflix["id"], rule="netflix")
+    assert [(r["item_id"], r["amount"]) for r in rules()] == [(netflix["id"], None)]
+
+
+def test_duplicate_rules_are_cleaned_up(tmp_path):
+    from app import backup, db
+    conn = db.connect(tmp_path / "b.db")
+    db.migrate(conn, db.MIGRATIONS[:8])
+    conn.execute("INSERT INTO members (name, color, is_shared) VALUES ('A', 0, 0)")
+    for name in ("Netflix", "Streaming"):
+        conn.execute("INSERT INTO items (member_id, kind, name) VALUES (1, 'expense', ?)", (name,))
+    rows = [("netflix", 1, None), ("NETFLIX", 1, None), ("Netflix ", 1, 12900), ("netflix", 2, 12900), ("hbo", 1, None)]
+    conn.executemany("INSERT INTO bank_rules (pattern, item_id, ignore, amount_cents) VALUES (?, ?, 0, ?)", rows)
+    db.migrate(conn, db.MIGRATIONS)
+    # Each goes when a newer one replaces it: the same text and item, or the same text and amount.
+    left = [tuple(r) for r in conn.execute("SELECT pattern, item_id, amount_cents FROM bank_rules ORDER BY id")]
+    assert left == [("netflix", 2, 12900), ("hbo", 1, None)]
+    # A backup from before gets the same.
+    data = {"schema": 8, "bank_rules": [{"id": i + 1, "pattern": p, "item_id": it, "ignore": 0, "amount_cents": a} for i, (p, it, a) in enumerate(rows)]}
+    upgraded = backup.upgrade(data, len(db.MIGRATIONS))
+    assert [(r["pattern"], r["item_id"], r["amount_cents"]) for r in upgraded["bank_rules"]] == left
